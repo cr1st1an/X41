@@ -1,0 +1,10 @@
+{
+    "extension_name": {
+        "message": "X41",
+        "description": "The display name for the extension."
+    },
+    "extension_description": {
+        "message": "Use X.COM in single player mode. Hide unwanted navigation items.",
+        "description": "Description of what the extension does."
+    }
+}
