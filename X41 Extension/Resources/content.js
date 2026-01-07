@@ -100,11 +100,6 @@
             div[data-testid*="Header"],
             div.css-175oi2r.r-1h3ijdo.r-136ojw6 {
                 display: none !important;
-                visibility: hidden !important;
-                opacity: 0 !important;
-                height: 0 !important;
-                max-height: 0 !important;
-                overflow: hidden !important;
             }
             ` : ''}
 
