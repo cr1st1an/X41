@@ -1,10 +1,13 @@
 /**
  * X41 - Enhanced X.com Navigation
  *
- * Minimal, memory-efficient content script with:
- * - Zero polling (event-driven architecture)
- * - Instant username detection via X's internal state
- * - Proper cleanup and error handling
+ * Features:
+ * - Custom tab bar with Profile, Notifications, Analytics
+ * - Redirects home feed to notifications
+ * - Matches X.com's actual theme (not just system preference)
+ * - Notification badge mirroring
+ * - Safe area support for iPhone
+ * - Graceful degradation on failure
  */
 
 (function() {
@@ -15,45 +18,72 @@
     // ========================================
 
     const CONFIG = {
+        // Version for future compatibility checks
+        VERSION: '2.0.0',
+
         // Performance
         NAVIGATION_DEBOUNCE_MS: 100,
-        MAX_USERNAME_RETRIES: 10,
+        MAX_USERNAME_RETRIES: 15,
         USERNAME_RETRY_DELAY_MS: 200,
+        BADGE_CHECK_INTERVAL_MS: 5000,
 
         // UI
-        TAB_BAR_HEIGHT: 53,
-        ICON_SIZE: 26,
+        TAB_BAR_HEIGHT: 49,
+        ICON_SIZE: 24,
 
-        // Colors (matching X.com's design system)
+        // Default colors (fallback if extraction fails)
         COLORS: {
             light: {
                 active: 'rgb(15, 20, 25)',
                 inactive: 'rgb(83, 100, 113)',
                 background: 'rgb(255, 255, 255)',
                 border: 'rgb(239, 243, 244)',
-                hover: 'rgb(247, 249, 249)'
+                hover: 'rgba(15, 20, 25, 0.1)'
+            },
+            dim: {
+                active: 'rgb(247, 249, 249)',
+                inactive: 'rgb(139, 152, 165)',
+                background: 'rgb(21, 32, 43)',
+                border: 'rgb(56, 68, 77)',
+                hover: 'rgba(247, 249, 249, 0.1)'
             },
             dark: {
                 active: 'rgb(231, 233, 234)',
                 inactive: 'rgb(113, 118, 123)',
                 background: 'rgb(0, 0, 0)',
                 border: 'rgb(47, 51, 54)',
-                hover: 'rgb(22, 24, 28)'
+                hover: 'rgba(231, 233, 234, 0.1)'
             }
         },
 
-        // Selectors (centralized for maintainability)
+        // Selectors with fallbacks for resilience
         SELECTORS: {
-            topNavBar: '[data-testid="TopNavBar"]',
+            topNavBar: '[data-testid="TopNavBar"], header[role="banner"] > div > div',
             headerBanner: 'header[role="banner"]',
-            nativeTabBar: '[data-testid="BottomBar"]',
-            primaryColumn: '[data-testid="primaryColumn"]'
+            nativeTabBar: '[data-testid="BottomBar"], nav[aria-label="Bottom navigation"]',
+            primaryColumn: '[data-testid="primaryColumn"], main[role="main"] > div',
+            sidebarNav: 'nav[role="navigation"]',
+            profileLink: 'a[data-testid="AppTabBar_Profile_Link"], a[href$="/profile"]',
+            notificationBadge: '[data-testid="app-bar-notification-badge"], [aria-label*="notification"][aria-label*="unread"]'
         },
 
         // Z-index management
         Z_INDEX: {
             tabBar: 10000
+        },
+
+        // Storage keys
+        STORAGE_KEYS: {
+            username: 'x41_username',
+            preferences: 'x41_preferences'
         }
+    };
+
+    // Default user preferences (for future features)
+    const DEFAULT_PREFERENCES = {
+        redirectHome: true,
+        showHeader: false,
+        tabs: ['profile', 'notifications', 'analytics']
     };
 
     // ========================================
@@ -63,6 +93,7 @@
     const state = {
         // User data
         username: null,
+        preferences: { ...DEFAULT_PREFERENCES },
 
         // Navigation
         currentPath: window.location.pathname,
@@ -70,17 +101,24 @@
 
         // UI elements
         tabBar: null,
-        tabElements: [],
+        tabElements: new Map(), // Map for O(1) lookup
         styleElement: null,
+        badgeElement: null,
 
         // Observers & listeners
-        mediaQuery: null,
         cleanupFunctions: [],
+        badgeObserver: null,
+
+        // Theme
+        theme: 'light', // 'light', 'dim', or 'dark'
+        extractedColors: null,
 
         // State flags
         isInitialized: false,
         isDestroyed: false,
-        theme: 'light'
+
+        // Notification count
+        notificationCount: 0
     };
 
     // ========================================
@@ -100,6 +138,15 @@
     }
 
     /**
+     * Log info in debug mode
+     */
+    function logInfo(context, message) {
+        if (DEBUG) {
+            console.log(`[X41] ${context}:`, message);
+        }
+    }
+
+    /**
      * Debounce function calls
      */
     function debounce(func, wait) {
@@ -115,24 +162,13 @@
     }
 
     /**
-     * Detect current theme
-     */
-    function detectTheme() {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-
-    /**
-     * Safely set SVG content in a container (avoids innerHTML XSS risk)
-     * @param {HTMLElement} container - The container element
-     * @param {string} svgString - The SVG markup string
+     * Safely set SVG content in a container
      */
     function setSVGContent(container, svgString) {
-        // Clear existing content safely
         while (container.firstChild) {
             container.removeChild(container.firstChild);
         }
 
-        // Parse SVG string safely using template element
         const template = document.createElement('template');
         template.innerHTML = svgString.trim();
         const svg = template.content.firstChild;
@@ -145,78 +181,258 @@
         }
     }
 
+    /**
+     * Check if element exists and is connected to DOM
+     */
+    function isConnected(element) {
+        return element && element.isConnected;
+    }
+
     // ========================================
-    // USERNAME DETECTION (Optimized)
+    // STORAGE (with fallback)
     // ========================================
 
     /**
-     * Extract username from X.com's internal state (instant)
-     * Falls back to script tag parsing if needed
+     * Save to storage with fallback to sessionStorage
+     */
+    async function saveToStorage(key, value) {
+        try {
+            if (typeof browser !== 'undefined' && browser.storage) {
+                await browser.storage.local.set({ [key]: value });
+            } else {
+                sessionStorage.setItem(key, JSON.stringify(value));
+            }
+        } catch (e) {
+            logError('saveToStorage', e);
+        }
+    }
+
+    /**
+     * Load from storage with fallback
+     */
+    async function loadFromStorage(key) {
+        try {
+            if (typeof browser !== 'undefined' && browser.storage) {
+                const result = await browser.storage.local.get(key);
+                return result[key];
+            } else {
+                const item = sessionStorage.getItem(key);
+                return item ? JSON.parse(item) : null;
+            }
+        } catch (e) {
+            logError('loadFromStorage', e);
+            return null;
+        }
+    }
+
+    // ========================================
+    // THEME DETECTION (Matches X.com's actual theme)
+    // ========================================
+
+    /**
+     * Detect X.com's actual theme from the page
+     * X.com has 3 themes: Light (white), Dim (dark blue), Lights Out (pure black)
+     */
+    function detectTheme() {
+        try {
+            // Method 1: Check body background color
+            const bodyBg = getComputedStyle(document.body).backgroundColor;
+            const rgb = bodyBg.match(/\d+/g);
+
+            if (rgb && rgb.length >= 3) {
+                const r = parseInt(rgb[0]);
+                const g = parseInt(rgb[1]);
+                const b = parseInt(rgb[2]);
+
+                // Light theme: rgb(255, 255, 255)
+                if (r > 250 && g > 250 && b > 250) {
+                    return 'light';
+                }
+
+                // Dim theme: rgb(21, 32, 43) - has a blue tint
+                if (r < 30 && g > 25 && g < 40 && b > 35 && b < 50) {
+                    return 'dim';
+                }
+
+                // Lights Out: rgb(0, 0, 0)
+                if (r < 10 && g < 10 && b < 10) {
+                    return 'dark';
+                }
+
+                // Fallback: check brightness
+                const brightness = (r + g + b) / 3;
+                return brightness < 128 ? 'dark' : 'light';
+            }
+        } catch (e) {
+            logError('detectTheme', e);
+        }
+
+        // Fallback to system preference
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    /**
+     * Extract colors from X.com's UI elements
+     */
+    function extractColors() {
+        try {
+            const theme = detectTheme();
+            const colors = { ...CONFIG.COLORS[theme] };
+
+            // Try to extract actual colors from X.com's elements
+            const primaryColumn = document.querySelector(CONFIG.SELECTORS.primaryColumn);
+            if (primaryColumn) {
+                const style = getComputedStyle(primaryColumn);
+                const bg = style.backgroundColor;
+                if (bg && bg !== 'rgba(0, 0, 0, 0)') {
+                    colors.background = bg;
+                }
+            }
+
+            // Extract border color from existing borders
+            const borderElement = document.querySelector('[data-testid="cellInnerDiv"]');
+            if (borderElement) {
+                const borderColor = getComputedStyle(borderElement).borderBottomColor;
+                if (borderColor && borderColor !== 'rgba(0, 0, 0, 0)') {
+                    colors.border = borderColor;
+                }
+            }
+
+            // Extract active color from primary buttons or links
+            const activeLink = document.querySelector('a[aria-selected="true"], a[aria-current="page"]');
+            if (activeLink) {
+                const color = getComputedStyle(activeLink).color;
+                if (color) {
+                    colors.active = color;
+                }
+            }
+
+            state.extractedColors = colors;
+            return colors;
+        } catch (e) {
+            logError('extractColors', e);
+            return CONFIG.COLORS[detectTheme()];
+        }
+    }
+
+    /**
+     * Get current theme colors
+     */
+    function getColors() {
+        if (state.extractedColors) {
+            return state.extractedColors;
+        }
+        return CONFIG.COLORS[state.theme] || CONFIG.COLORS.light;
+    }
+
+    // ========================================
+    // USERNAME DETECTION (Improved)
+    // ========================================
+
+    /**
+     * Extract username with multiple strategies and caching
      */
     async function detectUsername() {
-        if (state.username) return state.username;
+        // Return cached if available
+        if (state.username) {
+            return state.username;
+        }
 
-        // Method 1: Check for X.com's React state in window object
-        // X.com exposes user data in various global objects
+        // Try loading from storage first
+        const cached = await loadFromStorage(CONFIG.STORAGE_KEYS.username);
+        if (cached && typeof cached === 'string' && cached.length > 0) {
+            state.username = cached;
+            logInfo('detectUsername', `Loaded from cache: ${cached}`);
+            return cached;
+        }
+
+        // Method 1: Look for viewer/user data in scripts (most reliable)
         try {
-            // Try to find username in page's initial state
-            const initialStateScripts = document.querySelectorAll('script:not([src])');
-            for (const script of initialStateScripts) {
+            const scripts = document.querySelectorAll('script:not([src])');
+            for (const script of scripts) {
                 const content = script.textContent;
+                if (!content) continue;
 
-                // Look for screen_name in JSON structures
-                if (content.includes('screen_name')) {
-                    const match = content.match(/"screen_name":"([a-zA-Z0-9_]+)"/);
-                    if (match && match[1]) {
-                        state.username = match[1];
+                // Look for authenticated user patterns
+                // Pattern 1: "viewer":{"screen_name":"xxx"}
+                const viewerMatch = content.match(/"viewer"\s*:\s*\{[^}]*"screen_name"\s*:\s*"([a-zA-Z0-9_]+)"/);
+                if (viewerMatch && viewerMatch[1]) {
+                    state.username = viewerMatch[1];
+                    await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
+                    logInfo('detectUsername', `Found via viewer pattern: ${state.username}`);
+                    return state.username;
+                }
+
+                // Pattern 2: "user":{"screen_name":"xxx"} near authentication context
+                if (content.includes('isLoggedIn') || content.includes('authenticate')) {
+                    const userMatch = content.match(/"screen_name"\s*:\s*"([a-zA-Z0-9_]+)"/);
+                    if (userMatch && userMatch[1]) {
+                        state.username = userMatch[1];
+                        await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
+                        logInfo('detectUsername', `Found via auth context: ${state.username}`);
                         return state.username;
                     }
                 }
             }
         } catch (e) {
-            logError('detectUsername.scriptParsing', e);
+            logError('detectUsername.scripts', e);
         }
 
-        // Method 2: Check profile links in DOM (faster than waiting)
+        // Method 2: Check sidebar navigation profile link
         try {
-            const profileLinks = document.querySelectorAll('a[href^="/"]');
-            for (const link of profileLinks) {
-                const href = link.getAttribute('href');
-                // Check for single-segment path like "/username" (not "/path/to/page")
-                if (href && href.startsWith('/') && href.length > 1) {
-                    const pathSegments = href.substring(1).split('/');
-                    if (pathSegments.length === 1) {
-                        const ariaLabel = link.getAttribute('aria-label');
-                        if (ariaLabel && ariaLabel.includes('Profile')) {
-                            const username = pathSegments[0];
-                            if (username && /^[a-zA-Z0-9_]+$/.test(username)) {
-                                state.username = username;
-                                return state.username;
-                            }
-                        }
+            const profileLink = document.querySelector(CONFIG.SELECTORS.profileLink);
+            if (profileLink) {
+                const href = profileLink.getAttribute('href');
+                if (href && href.startsWith('/')) {
+                    const username = href.substring(1).split('/')[0];
+                    if (username && /^[a-zA-Z0-9_]+$/.test(username)) {
+                        state.username = username;
+                        await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
+                        logInfo('detectUsername', `Found via profile link: ${state.username}`);
+                        return state.username;
                     }
                 }
             }
         } catch (e) {
-            logError('detectUsername.profileLinks', e);
+            logError('detectUsername.profileLink', e);
         }
 
-        // Method 3: Wait for it to appear (last resort)
+        // Method 3: Check profile links with aria-label
+        try {
+            const links = document.querySelectorAll('a[href^="/"][aria-label*="Profile"]');
+            for (const link of links) {
+                const href = link.getAttribute('href');
+                if (href) {
+                    const segments = href.substring(1).split('/');
+                    if (segments.length === 1 && /^[a-zA-Z0-9_]+$/.test(segments[0])) {
+                        state.username = segments[0];
+                        await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
+                        logInfo('detectUsername', `Found via aria-label: ${state.username}`);
+                        return state.username;
+                    }
+                }
+            }
+        } catch (e) {
+            logError('detectUsername.ariaLabel', e);
+        }
+
+        // Method 4: Retry with delay (last resort)
         return new Promise((resolve, reject) => {
             let attempts = 0;
 
-            const check = () => {
+            const check = async () => {
                 attempts++;
 
-                // Try script tag method
+                // Retry script method
                 try {
                     const scripts = document.querySelectorAll('script:not([src])');
                     for (const script of scripts) {
                         const content = script.textContent;
                         if (content && content.includes('screen_name')) {
-                            const match = content.match(/"screen_name":"([a-zA-Z0-9_]+)"/);
+                            const match = content.match(/"screen_name"\s*:\s*"([a-zA-Z0-9_]+)"/);
                             if (match && match[1]) {
                                 state.username = match[1];
+                                await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
                                 resolve(state.username);
                                 return;
                             }
@@ -226,15 +442,144 @@
                     logError('detectUsername.retry', e);
                 }
 
-                // Retry or give up
+                // Retry profile link method
+                try {
+                    const profileLink = document.querySelector(CONFIG.SELECTORS.profileLink);
+                    if (profileLink) {
+                        const href = profileLink.getAttribute('href');
+                        if (href) {
+                            const username = href.substring(1).split('/')[0];
+                            if (username && /^[a-zA-Z0-9_]+$/.test(username)) {
+                                state.username = username;
+                                await saveToStorage(CONFIG.STORAGE_KEYS.username, state.username);
+                                resolve(state.username);
+                                return;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    logError('detectUsername.retryLink', e);
+                }
+
                 if (attempts < CONFIG.MAX_USERNAME_RETRIES) {
                     setTimeout(check, CONFIG.USERNAME_RETRY_DELAY_MS);
                 } else {
-                    reject(new Error('Failed to detect username'));
+                    reject(new Error('Failed to detect username after ' + attempts + ' attempts'));
                 }
             };
 
             check();
+        });
+    }
+
+    // ========================================
+    // NOTIFICATION BADGE
+    // ========================================
+
+    /**
+     * Extract notification count from X.com's UI
+     */
+    function getNotificationCount() {
+        try {
+            // Try multiple selectors
+            const selectors = [
+                '[data-testid="app-bar-notification-badge"]',
+                'a[href="/notifications"] [aria-label]',
+                'nav a[href="/notifications"] span'
+            ];
+
+            for (const selector of selectors) {
+                const badge = document.querySelector(selector);
+                if (badge) {
+                    const text = badge.textContent || badge.getAttribute('aria-label') || '';
+                    const match = text.match(/(\d+)/);
+                    if (match) {
+                        return parseInt(match[1], 10);
+                    }
+                }
+            }
+        } catch (e) {
+            logError('getNotificationCount', e);
+        }
+        return 0;
+    }
+
+    /**
+     * Update our notification badge
+     */
+    function updateNotificationBadge() {
+        const count = getNotificationCount();
+        if (count === state.notificationCount) return;
+
+        state.notificationCount = count;
+
+        const tabData = state.tabElements.get('notifications');
+        if (!tabData) return;
+
+        // Remove existing badge
+        const existingBadge = tabData.element.querySelector('.x41-badge');
+        if (existingBadge) {
+            existingBadge.remove();
+        }
+
+        // Add badge if count > 0
+        if (count > 0) {
+            const badge = document.createElement('div');
+            badge.className = 'x41-badge';
+            badge.textContent = count > 99 ? '99+' : count.toString();
+
+            const colors = getColors();
+            Object.assign(badge.style, {
+                position: 'absolute',
+                top: '6px',
+                right: 'calc(50% - 20px)',
+                minWidth: '18px',
+                height: '18px',
+                borderRadius: '9px',
+                backgroundColor: 'rgb(29, 155, 240)', // X.com blue
+                color: 'white',
+                fontSize: '11px',
+                fontWeight: '700',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 5px',
+                boxSizing: 'border-box'
+            });
+
+            tabData.element.appendChild(badge);
+        }
+    }
+
+    /**
+     * Watch for notification badge changes
+     */
+    function watchNotificationBadge() {
+        // Initial check
+        updateNotificationBadge();
+
+        // Set up MutationObserver to watch for badge changes
+        const observer = new MutationObserver(() => {
+            updateNotificationBadge();
+        });
+
+        // Observe the navigation area
+        const nav = document.querySelector('nav[role="navigation"]');
+        if (nav) {
+            observer.observe(nav, {
+                childList: true,
+                subtree: true,
+                characterData: true
+            });
+        }
+
+        // Also check periodically as backup
+        const intervalId = setInterval(updateNotificationBadge, CONFIG.BADGE_CHECK_INTERVAL_MS);
+
+        state.badgeObserver = observer;
+        state.cleanupFunctions.push(() => {
+            observer.disconnect();
+            clearInterval(intervalId);
         });
     }
 
@@ -246,6 +591,8 @@
      * Check and handle redirects
      */
     function handleRedirects() {
+        if (!state.preferences.redirectHome) return false;
+
         const path = window.location.pathname;
 
         if (path === '/' || path === '/home') {
@@ -265,52 +612,64 @@
     }
 
     // ========================================
-    // CSS INJECTION (Optimized)
+    // CSS INJECTION
     // ========================================
 
-    /**
-     * Inject or update styles
-     * Only re-injects when page type changes (compose vs non-compose)
-     */
-    function updateStyles() {
-        try {
-            const composePage = isComposePage();
-
-            // Only update if page type changed or styles don't exist
-            if (state.isComposePage === composePage && state.styleElement && document.head.contains(state.styleElement)) {
-                return;
-            }
-
-            state.isComposePage = composePage;
-
-            // Remove only our style element if it exists
-            if (state.styleElement && state.styleElement.parentNode) {
-                state.styleElement.remove();
-            }
-
-            // Create new style element
-            const style = document.createElement('style');
-            style.id = 'x41-styles';
-            style.textContent = generateCSS(composePage);
-
-            // Inject into head
-            (document.head || document.documentElement).appendChild(style);
-            state.styleElement = style;
-        } catch (e) {
-            logError('updateStyles', e);
-        }
-    }
+    // Pre-generated CSS templates
+    let cssTemplates = {
+        base: null,
+        compose: null,
+        nonCompose: null
+    };
 
     /**
-     * Generate CSS based on page type
+     * Generate CSS templates once at initialization
      */
-    function generateCSS(isCompose) {
-        return `
-            /* X41 Extension Styles - Minimal Version */
+    function generateCSSTemplates() {
+        const tabBarHeight = CONFIG.TAB_BAR_HEIGHT;
 
-            /* Header visibility control */
-            ${!isCompose ? `
-            /* Hide header on non-compose pages (keep in DOM to avoid breaking X.com) */
+        cssTemplates.base = `
+            /* X41 Extension Styles */
+
+            /* Hide native bottom tab bar */
+            ${CONFIG.SELECTORS.nativeTabBar} {
+                display: none !important;
+            }
+
+            /* Add bottom padding for custom tab bar with safe area */
+            ${CONFIG.SELECTORS.primaryColumn} {
+                padding-bottom: calc(${tabBarHeight + 10}px + env(safe-area-inset-bottom, 0px)) !important;
+            }
+
+            /* Reposition floating compose button above tab bar */
+            a[href="/compose/post"],
+            a[data-testid="SideNav_NewTweet_Button"],
+            a[aria-label*="Post"],
+            button[data-testid="SideNav_NewTweet_Button"] {
+                bottom: calc(${tabBarHeight + 16}px + env(safe-area-inset-bottom, 0px)) !important;
+            }
+
+            /* Tab bar base */
+            #x41-tab-bar {
+                opacity: 1;
+                transition: opacity 0.2s ease;
+            }
+
+            /* Tab hover effect */
+            .x41-tab:active {
+                opacity: 0.7;
+            }
+
+            @media (hover: hover) {
+                .x41-tab:hover .x41-icon {
+                    background-color: var(--x41-hover-color, rgba(0,0,0,0.1));
+                    border-radius: 50%;
+                }
+            }
+        `;
+
+        cssTemplates.nonCompose = `
+            /* Hide header on non-compose pages */
             ${CONFIG.SELECTORS.topNavBar},
             ${CONFIG.SELECTORS.headerBanner} {
                 visibility: hidden !important;
@@ -320,40 +679,56 @@
                 overflow: hidden !important;
                 pointer-events: none !important;
             }
-            ` : ''}
+        `;
 
-            /* Hide native bottom tab bar */
-            ${CONFIG.SELECTORS.nativeTabBar} {
-                display: none !important;
-            }
-
-            /* Add bottom padding for custom tab bar */
-            ${CONFIG.SELECTORS.primaryColumn} {
-                padding-bottom: ${CONFIG.TAB_BAR_HEIGHT + 10}px !important;
-            }
-
-            /* Reposition floating compose button above tab bar */
-            a[href="/compose/post"],
-            a[data-testid="SideNav_NewTweet_Button"],
-            a[aria-label*="Post"],
-            button[data-testid="SideNav_NewTweet_Button"] {
-                bottom: ${CONFIG.TAB_BAR_HEIGHT}px !important;
-            }
-
-            /* Tab bar */
-            #x41-tab-bar {
-                opacity: 1;
-            }
-
-            /* Tab interactions */
-            .x41-tab:hover {
-                background-color: var(--x41-hover-color);
+        cssTemplates.compose = `
+            /* Show header on compose pages */
+            ${CONFIG.SELECTORS.topNavBar},
+            ${CONFIG.SELECTORS.headerBanner} {
+                visibility: visible !important;
+                height: auto !important;
+                min-height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+                pointer-events: auto !important;
             }
         `;
     }
 
+    /**
+     * Inject or update styles
+     */
+    function updateStyles() {
+        try {
+            const composePage = isComposePage();
+
+            // Only update if page type changed or styles don't exist
+            if (state.isComposePage === composePage && isConnected(state.styleElement)) {
+                return;
+            }
+
+            state.isComposePage = composePage;
+
+            // Remove existing style element
+            if (isConnected(state.styleElement)) {
+                state.styleElement.remove();
+            }
+
+            // Create new style element
+            const style = document.createElement('style');
+            style.id = 'x41-styles';
+            style.textContent = cssTemplates.base + (composePage ? cssTemplates.compose : cssTemplates.nonCompose);
+
+            // Inject into head
+            (document.head || document.documentElement).appendChild(style);
+            state.styleElement = style;
+        } catch (e) {
+            logError('updateStyles', e);
+        }
+    }
+
     // ========================================
-    // TAB BAR CREATION (Optimized)
+    // TAB BAR
     // ========================================
 
     /**
@@ -361,7 +736,7 @@
      */
     async function createTabBar() {
         // Check if already exists
-        if (state.tabBar && document.body.contains(state.tabBar)) {
+        if (isConnected(state.tabBar)) {
             updateTabBar();
             return;
         }
@@ -372,47 +747,51 @@
             throw new Error('Cannot create tab bar without username');
         }
 
-        // Detect theme
-        const theme = detectTheme();
-        state.theme = theme;
-        const colors = CONFIG.COLORS[theme];
+        // Detect theme and extract colors
+        state.theme = detectTheme();
+        const colors = extractColors();
 
         // Create container
         const tabBar = document.createElement('div');
         tabBar.id = 'x41-tab-bar';
         tabBar.setAttribute('role', 'navigation');
-        tabBar.setAttribute('aria-label', 'Main navigation');
+        tabBar.setAttribute('aria-label', 'X41 navigation');
 
-        // Apply styles
+        // Apply styles with safe area support
         Object.assign(tabBar.style, {
             position: 'fixed',
             bottom: '0',
             left: '0',
             right: '0',
             width: '100%',
-            height: CONFIG.TAB_BAR_HEIGHT + 'px',
+            height: `calc(${CONFIG.TAB_BAR_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             backgroundColor: colors.background,
-            borderTop: `1px solid ${colors.border}`,
+            borderTop: `0.5px solid ${colors.border}`,
             display: 'flex',
             justifyContent: 'space-around',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             zIndex: CONFIG.Z_INDEX.tabBar.toString(),
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-            boxShadow: '0 -1px 3px rgba(0, 0, 0, 0.1)'
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            boxSizing: 'border-box'
         });
 
         // Define tabs
         const tabs = [
-            { href: `/${username}`, icon: 'profile', label: 'Profile' },
-            { href: '/notifications', icon: 'notifications', label: 'Notifications' },
-            { href: '/i/account_analytics', icon: 'analytics', label: 'Analytics' }
+            { id: 'profile', href: `/${username}`, icon: 'profile', label: 'Profile' },
+            { id: 'notifications', href: '/notifications', icon: 'notifications', label: 'Notifications' },
+            { id: 'analytics', href: '/i/account_analytics', icon: 'analytics', label: 'Analytics' }
         ];
 
         // Create tab elements
-        state.tabElements = tabs.map(tab => createTab(tab, colors));
-
-        // Append tabs to bar
-        state.tabElements.forEach(({ element }) => tabBar.appendChild(element));
+        state.tabElements.clear();
+        tabs.forEach(tab => {
+            const tabData = createTab(tab, colors);
+            state.tabElements.set(tab.id, tabData);
+            tabBar.appendChild(tabData.element);
+        });
 
         // Store reference
         state.tabBar = tabBar;
@@ -422,6 +801,9 @@
 
         // Update active state
         updateTabBar();
+
+        // Start watching notification badge
+        watchNotificationBadge();
     }
 
     /**
@@ -429,7 +811,7 @@
      */
     function createTab(tab, colors) {
         const currentPath = window.location.pathname;
-        const isActive = checkIfTabIsActive(currentPath, tab.href);
+        const isActive = checkIfTabIsActive(currentPath, tab);
 
         // Create tab link
         const element = document.createElement('a');
@@ -437,15 +819,18 @@
         element.className = 'x41-tab';
         element.setAttribute('aria-label', tab.label);
         element.setAttribute('aria-current', isActive ? 'page' : 'false');
+        element.setAttribute('data-tab-id', tab.id);
 
         // Styles
         Object.assign(element.style, {
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             flex: '1',
             textDecoration: 'none',
             padding: '0',
+            paddingTop: '8px',
             position: 'relative',
             cursor: 'pointer',
             WebkitTapHighlightColor: 'transparent',
@@ -460,12 +845,13 @@
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '50px',
-            height: '50px',
-            color: isActive ? colors.active : colors.inactive
+            width: '42px',
+            height: '42px',
+            color: isActive ? colors.active : colors.inactive,
+            transition: 'background-color 0.15s ease'
         });
 
-        // Set icon safely (avoids innerHTML XSS risk)
+        // Set icon
         setSVGContent(iconWrapper, getIconSVG(tab.icon, isActive));
 
         element.appendChild(iconWrapper);
@@ -473,6 +859,7 @@
         return {
             element,
             iconWrapper,
+            id: tab.id,
             href: tab.href,
             iconKey: tab.icon,
             isActive
@@ -480,46 +867,81 @@
     }
 
     /**
-     * Check if a tab is currently active
+     * Check if a tab is currently active (improved specificity)
      */
-    function checkIfTabIsActive(currentPath, tabHref) {
-        if (currentPath === tabHref) return true;
-        if (state.username && tabHref === `/${state.username}` && currentPath.startsWith(`/${state.username}`)) {
+    function checkIfTabIsActive(currentPath, tab) {
+        // Exact match
+        if (currentPath === tab.href) {
             return true;
         }
+
+        // Profile tab: match profile and its sub-pages
+        if (tab.id === 'profile' && state.username) {
+            const profileBase = `/${state.username}`;
+            if (currentPath === profileBase) return true;
+
+            // Match specific profile sub-pages
+            const profileSubpages = ['/with_replies', '/highlights', '/articles', '/media', '/likes'];
+            for (const subpage of profileSubpages) {
+                if (currentPath === profileBase + subpage) return true;
+            }
+        }
+
+        // Notifications tab: match notification sub-pages
+        if (tab.id === 'notifications') {
+            if (currentPath.startsWith('/notifications')) return true;
+        }
+
+        // Analytics tab: match analytics sub-pages
+        if (tab.id === 'analytics') {
+            if (currentPath.startsWith('/i/account_analytics')) return true;
+        }
+
         return false;
     }
 
     /**
-     * Update tab bar active states
+     * Update tab bar active states and theme
      */
     function updateTabBar() {
-        if (!state.tabBar || !state.username) return;
+        if (!isConnected(state.tabBar) || !state.username) return;
 
         const currentPath = window.location.pathname;
-        const theme = detectTheme();
-        const colors = CONFIG.COLORS[theme];
+        const newTheme = detectTheme();
 
         // Update theme if changed
-        if (state.theme !== theme) {
-            state.theme = theme;
-            state.tabBar.style.backgroundColor = colors.background;
-            state.tabBar.style.borderTopColor = colors.border;
+        if (state.theme !== newTheme) {
+            state.theme = newTheme;
+            state.extractedColors = null; // Reset extracted colors
         }
 
+        const colors = extractColors();
+
+        // Update tab bar colors
+        state.tabBar.style.backgroundColor = colors.background;
+        state.tabBar.style.borderTopColor = colors.border;
+
         // Update each tab
-        state.tabElements.forEach(({ element, iconWrapper, href, iconKey }) => {
-            const isActive = checkIfTabIsActive(currentPath, href);
+        state.tabElements.forEach((tabData) => {
+            const isActive = checkIfTabIsActive(currentPath, tabData);
 
             // Update aria-current
-            element.setAttribute('aria-current', isActive ? 'page' : 'false');
+            tabData.element.setAttribute('aria-current', isActive ? 'page' : 'false');
 
-            // Update icon safely
-            setSVGContent(iconWrapper, getIconSVG(iconKey, isActive));
+            // Update icon
+            setSVGContent(tabData.iconWrapper, getIconSVG(tabData.iconKey, isActive));
 
             // Update color
-            iconWrapper.style.color = isActive ? colors.active : colors.inactive;
+            tabData.iconWrapper.style.color = isActive ? colors.active : colors.inactive;
+
+            // Update hover color CSS variable
+            tabData.element.style.setProperty('--x41-hover-color', colors.hover);
+
+            tabData.isActive = isActive;
         });
+
+        // Update notification badge
+        updateNotificationBadge();
     }
 
     /**
@@ -545,12 +967,11 @@
     }
 
     // ========================================
-    // NAVIGATION HANDLING (Event-Driven)
+    // NAVIGATION HANDLING
     // ========================================
 
     /**
      * Handle navigation changes
-     * Called on popstate, pushState, replaceState
      */
     const handleNavigation = debounce(() => {
         const newPath = window.location.pathname;
@@ -571,7 +992,6 @@
 
     /**
      * Intercept pushState and replaceState
-     * This catches SPA navigation that doesn't trigger popstate
      */
     function interceptNavigation() {
         const originalPushState = history.pushState;
@@ -587,10 +1007,8 @@
             handleNavigation();
         };
 
-        // Also listen for popstate (back/forward buttons)
         window.addEventListener('popstate', handleNavigation);
 
-        // Store cleanup
         state.cleanupFunctions.push(() => {
             history.pushState = originalPushState;
             history.replaceState = originalReplaceState;
@@ -599,29 +1017,72 @@
     }
 
     // ========================================
-    // THEME HANDLING
+    // THEME CHANGE HANDLING
     // ========================================
 
     /**
-     * Handle theme changes
+     * Watch for theme changes (both system and X.com)
      */
-    function handleThemeChange(e) {
-        const isDark = e.matches;
-        state.theme = isDark ? 'dark' : 'light';
-        updateTabBar();
+    function setupThemeWatcher() {
+        // Watch system theme
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleSystemThemeChange = () => {
+            state.extractedColors = null; // Reset to force re-extraction
+            updateTabBar();
+        };
+        mediaQuery.addEventListener('change', handleSystemThemeChange);
+
+        // Watch for X.com theme changes via MutationObserver on body
+        const bodyObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'attributes' &&
+                    (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
+                    const newTheme = detectTheme();
+                    if (newTheme !== state.theme) {
+                        state.theme = newTheme;
+                        state.extractedColors = null;
+                        updateTabBar();
+                    }
+                    break;
+                }
+            }
+        });
+
+        bodyObserver.observe(document.body, {
+            attributes: true,
+            attributeFilter: ['style', 'class']
+        });
+
+        state.cleanupFunctions.push(() => {
+            mediaQuery.removeEventListener('change', handleSystemThemeChange);
+            bodyObserver.disconnect();
+        });
     }
 
-    /**
-     * Setup theme listener
-     */
-    function setupThemeListener() {
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        mediaQuery.addEventListener('change', handleThemeChange);
+    // ========================================
+    // GRACEFUL DEGRADATION
+    // ========================================
 
-        state.mediaQuery = mediaQuery;
-        state.cleanupFunctions.push(() => {
-            mediaQuery.removeEventListener('change', handleThemeChange);
-        });
+    /**
+     * Restore native X.com UI
+     */
+    function restoreNativeUI() {
+        logInfo('restoreNativeUI', 'Restoring native X.com UI');
+
+        // Remove our style element
+        if (isConnected(state.styleElement)) {
+            state.styleElement.remove();
+            state.styleElement = null;
+        }
+
+        // Remove our tab bar
+        if (isConnected(state.tabBar)) {
+            state.tabBar.remove();
+            state.tabBar = null;
+        }
+
+        // Clear tab elements
+        state.tabElements.clear();
     }
 
     // ========================================
@@ -635,23 +1096,32 @@
         if (state.isInitialized) return;
 
         try {
+            logInfo('initialize', 'Starting initialization');
+
+            // Generate CSS templates
+            generateCSSTemplates();
+
             // Inject CSS immediately
             updateStyles();
 
             // Setup navigation interception
             interceptNavigation();
 
-            // Setup theme listener
-            setupThemeListener();
+            // Setup theme watcher
+            setupThemeWatcher();
 
             // Create tab bar (waits for username)
             await createTabBar();
 
             // Mark as initialized
             state.isInitialized = true;
+            logInfo('initialize', 'Initialization complete');
 
         } catch (error) {
             logError('initialize', error);
+
+            // Graceful degradation: restore native UI if our initialization fails
+            restoreNativeUI();
         }
     }
 
@@ -660,6 +1130,8 @@
      */
     function destroy() {
         if (state.isDestroyed) return;
+
+        logInfo('destroy', 'Cleaning up');
 
         // Run all cleanup functions
         state.cleanupFunctions.forEach(fn => {
@@ -670,15 +1142,8 @@
             }
         });
 
-        // Remove tab bar
-        if (state.tabBar && state.tabBar.parentNode) {
-            state.tabBar.remove();
-        }
-
-        // Remove styles
-        if (state.styleElement && state.styleElement.parentNode) {
-            state.styleElement.remove();
-        }
+        // Restore native UI
+        restoreNativeUI();
 
         state.isDestroyed = true;
     }
@@ -687,8 +1152,11 @@
     // ENTRY POINT
     // ========================================
 
-    // Check for redirects first
+    // Check for redirects first (before any UI changes)
     if (handleRedirects()) return;
+
+    // Generate CSS templates
+    generateCSSTemplates();
 
     // Inject CSS as early as possible
     updateStyles();
