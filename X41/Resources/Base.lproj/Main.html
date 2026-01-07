@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self' data:;">
+    <title>X41</title>
     <style>
         * {
             margin: 0;
@@ -12,226 +13,418 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        html, body {
-            height: 100%;
-            overflow: hidden;
+        :root {
+            /* iOS System Colors - Light Mode */
+            --system-background: rgb(255, 255, 255);
+            --secondary-system-background: rgb(242, 242, 247);
+            --tertiary-system-background: rgb(255, 255, 255);
+
+            --label: rgb(0, 0, 0);
+            --secondary-label: rgba(60, 60, 67, 0.6);
+            --tertiary-label: rgba(60, 60, 67, 0.3);
+
+            --system-blue: rgb(0, 122, 255);
+            --system-blue-hover: rgb(0, 108, 225);
+            --system-blue-active: rgb(0, 95, 204);
+
+            --separator: rgba(60, 60, 67, 0.29);
+            --system-fill: rgba(120, 120, 128, 0.2);
+
+            /* Safe area insets */
+            --safe-area-inset-top: env(safe-area-inset-top, 0px);
+            --safe-area-inset-right: env(safe-area-inset-right, 0px);
+            --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-area-inset-left: env(safe-area-inset-left, 0px);
+
+            /* Typography */
+            --text-large-title: 34px;
+            --line-height-large-title: 41px;
+            --text-body: 17px;
+            --line-height-body: 22px;
+            --text-footnote: 13px;
+            --line-height-footnote: 18px;
+
+            /* Spacing */
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 20px;
+            --spacing-xxl: 24px;
+            --spacing-3xl: 32px;
+            --spacing-4xl: 48px;
+
+            /* Radius */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 14px;
+            --radius-xl: 16px;
+            --radius-icon: 26.64px; /* 120px × 0.222 for iOS squircle */
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* iOS System Colors - Dark Mode */
+                --system-background: rgb(0, 0, 0);
+                --secondary-system-background: rgb(28, 28, 30);
+                --tertiary-system-background: rgb(44, 44, 46);
+
+                --label: rgb(255, 255, 255);
+                --secondary-label: rgba(235, 235, 245, 0.6);
+                --tertiary-label: rgba(235, 235, 245, 0.3);
+
+                --system-blue: rgb(10, 132, 255);
+                --system-blue-hover: rgb(20, 142, 255);
+                --system-blue-active: rgb(0, 122, 245);
+
+                --separator: rgba(84, 84, 88, 0.6);
+                --system-fill: rgba(120, 120, 128, 0.36);
+            }
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #FFFFFF;
-            color: #000000;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', system-ui, sans-serif;
+            background-color: var(--system-background);
+            color: var(--label);
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .page-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: var(--spacing-3xl);
+            padding-top: max(var(--spacing-3xl), var(--safe-area-inset-top));
+            padding-bottom: max(var(--spacing-3xl), var(--safe-area-inset-bottom));
+            padding-left: max(var(--spacing-xl), var(--safe-area-inset-left));
+            padding-right: max(var(--spacing-xl), var(--safe-area-inset-right));
+        }
+
+        .content-wrapper {
+            flex: 1;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            padding: 40px 32px;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            body {
-                background: #000000;
-                color: #FFFFFF;
-            }
-        }
-
-        .container {
-            text-align: center;
-            max-width: 400px;
+            max-width: 420px;
             width: 100%;
+            margin: 0 auto;
+            text-align: center;
+            gap: var(--spacing-3xl);
         }
 
         /* App Icon */
-        .icon {
-            width: 100px;
-            height: 100px;
-            margin: 0 auto 32px;
-            border-radius: 22.37%;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+        .app-icon-container {
+            position: relative;
+            animation: scaleIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+        }
+
+        .app-icon {
+            width: 120px;
+            height: 120px;
+            border-radius: var(--radius-icon);
+            box-shadow:
+                0 8px 16px rgba(0, 0, 0, 0.12),
+                0 2px 4px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            -webkit-mask-image: -webkit-radial-gradient(white, black);
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .app-icon {
+                box-shadow:
+                    0 8px 16px rgba(0, 0, 0, 0.3),
+                    0 2px 4px rgba(0, 0, 0, 0.2),
+                    0 0 0 0.5px rgba(255, 255, 255, 0.1);
+            }
+        }
+
+        .app-icon img {
+            width: 100%;
+            height: 100%;
             display: block;
         }
 
-        @media (prefers-color-scheme: dark) {
-            .icon {
-                box-shadow: 0 10px 30px rgba(0,0,0,0.4);
-            }
+        /* Typography */
+        .title-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-md);
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.1s backwards;
         }
 
-        /* Title */
-        h1 {
-            font-size: 34px;
+        .title {
+            font-size: var(--text-large-title);
+            line-height: var(--line-height-large-title);
             font-weight: 700;
             letter-spacing: 0.374px;
-            line-height: 41px;
-            margin-bottom: 8px;
+            color: var(--label);
         }
 
-        /* Subtitle */
         .subtitle {
-            font-size: 17px;
-            font-weight: 400;
-            line-height: 22px;
+            font-size: var(--text-body);
+            line-height: var(--line-height-body);
             letter-spacing: -0.408px;
-            color: rgba(60, 60, 67, 0.6);
-            margin-bottom: 48px;
+            color: var(--secondary-label);
+            max-width: 340px;
         }
 
-        @media (prefers-color-scheme: dark) {
-            .subtitle {
-                color: rgba(235, 235, 245, 0.6);
-            }
+        /* Feature Card */
+        .feature-card {
+            width: 100%;
+            background-color: var(--secondary-system-background);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-xxl);
+            border: 1px solid var(--separator);
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s backwards;
         }
 
-        /* Feature Preview - Visual mockup of tab bar */
-        .preview {
-            background: rgba(120, 120, 128, 0.12);
-            border-radius: 20px;
-            padding: 24px;
-            margin-bottom: 48px;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .preview {
-                background: rgba(142, 142, 147, 0.12);
-            }
-        }
-
-        .preview-title {
-            font-size: 15px;
+        .feature-title {
+            font-size: var(--text-footnote);
+            line-height: var(--line-height-footnote);
             font-weight: 600;
-            margin-bottom: 16px;
-            color: rgba(60, 60, 67, 0.6);
+            color: var(--secondary-label);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: var(--spacing-xl);
         }
 
-        @media (prefers-color-scheme: dark) {
-            .preview-title {
-                color: rgba(235, 235, 245, 0.6);
-            }
-        }
-
-        /* Mini tab bar preview */
-        .tab-bar-preview {
-            background: #FFFFFF;
-            border-radius: 12px;
-            padding: 12px;
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .tab-bar-preview {
-                background: #1C1C1E;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            }
+        .tabs-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--spacing-lg);
         }
 
         .tab-item {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 4px;
-            flex: 1;
+            gap: var(--spacing-sm);
         }
 
-        .tab-icon {
-            width: 28px;
-            height: 28px;
+        .tab-icon-wrapper {
+            width: 48px;
+            height: 48px;
+            background: var(--system-fill);
+            border-radius: var(--radius-md);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
+            font-size: 24px;
         }
 
         .tab-label {
-            font-size: 10px;
+            font-size: 12px;
+            line-height: 16px;
             font-weight: 500;
-            color: rgba(60, 60, 67, 0.6);
+            color: var(--secondary-label);
         }
 
-        @media (prefers-color-scheme: dark) {
-            .tab-label {
-                color: rgba(235, 235, 245, 0.6);
+        /* CTA Section */
+        .cta-section {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-lg);
+            animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.3s backwards;
+        }
+
+        .button-primary {
+            width: 100%;
+            min-height: 50px;
+            background-color: var(--system-blue);
+            color: white;
+            border: none;
+            border-radius: 999px;
+            padding: 14px 24px;
+            font-size: var(--text-body);
+            font-weight: 600;
+            line-height: var(--line-height-body);
+            letter-spacing: -0.408px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            -webkit-user-select: none;
+            user-select: none;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+        }
+
+        .button-primary:hover {
+            background-color: var(--system-blue-hover);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+        }
+
+        .button-primary:active {
+            background-color: var(--system-blue-active);
+            transform: scale(0.98);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        }
+
+        .helper-text {
+            font-size: var(--text-footnote);
+            line-height: var(--line-height-footnote);
+            letter-spacing: -0.078px;
+            color: var(--tertiary-label);
+        }
+
+        /* Footer */
+        .footer {
+            margin-top: auto;
+            padding-top: var(--spacing-xxl);
+            text-align: center;
+            font-size: 12px;
+            line-height: 16px;
+            color: var(--tertiary-label);
+            animation: fadeIn 0.6s ease 0.4s backwards;
+        }
+
+        /* Animations */
+        @keyframes scaleIn {
+            from {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
             }
         }
 
-        /* CTA Button */
-        .cta {
-            width: 100%;
-            background: #007AFF;
-            color: #FFFFFF;
-            font-size: 17px;
-            font-weight: 600;
-            padding: 16px;
-            border: none;
-            border-radius: 14px;
-            cursor: pointer;
-            margin-bottom: 16px;
-            box-shadow: 0 1px 3px rgba(0, 122, 255, 0.3);
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
-        .cta:active {
-            opacity: 0.8;
-            transform: scale(0.98);
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
         }
 
-        /* Help text */
-        .help {
-            font-size: 13px;
-            line-height: 18px;
-            letter-spacing: -0.078px;
-            color: rgba(60, 60, 67, 0.6);
+        /* Reduce motion for accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
         }
 
-        @media (prefers-color-scheme: dark) {
-            .help {
-                color: rgba(235, 235, 245, 0.6);
+        /* Responsive adjustments */
+        @media (max-width: 375px) {
+            .title {
+                font-size: 28px;
+                line-height: 34px;
+            }
+
+            .app-icon {
+                width: 100px;
+                height: 100px;
+                border-radius: 22.2px; /* 100 × 0.222 */
+            }
+        }
+
+        @media (orientation: landscape) and (max-height: 430px) {
+            .page-container {
+                padding-top: var(--spacing-lg);
+                padding-bottom: var(--spacing-lg);
+            }
+
+            .content-wrapper {
+                gap: var(--spacing-xl);
+            }
+
+            .title {
+                font-size: 24px;
+                line-height: 30px;
+            }
+
+            .app-icon {
+                width: 80px;
+                height: 80px;
+                border-radius: 17.76px; /* 80 × 0.222 */
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- App Icon -->
-        <img src="../app-icon.png" class="icon" alt="X41">
+    <div class="page-container">
+        <div class="content-wrapper">
+            <!-- App Icon -->
+            <div class="app-icon-container">
+                <div class="app-icon">
+                    <img src="../app-icon.png" alt="X41 App Icon" width="120" height="120">
+                </div>
+            </div>
 
-        <!-- Title & Subtitle -->
-        <h1>X41</h1>
-        <p class="subtitle">Use X in single-player mode.<br>Focused. Minimal. Yours.</p>
+            <!-- Title and Subtitle -->
+            <div class="title-section">
+                <h1 class="title">X41</h1>
+                <p class="subtitle">
+                    Adds a streamlined navigation bar to X.com with quick access to your most-used pages.
+                </p>
+            </div>
 
-        <!-- Visual Preview -->
-        <div class="preview">
-            <div class="preview-title">Your new navigation</div>
-            <div class="tab-bar-preview">
-                <div class="tab-item">
-                    <div class="tab-icon">👤</div>
-                    <div class="tab-label">Profile</div>
+            <!-- Feature Card -->
+            <div class="feature-card">
+                <div class="feature-title">Quick Navigation</div>
+                <div class="tabs-grid">
+                    <div class="tab-item">
+                        <div class="tab-icon-wrapper">👤</div>
+                        <div class="tab-label">Profile</div>
+                    </div>
+                    <div class="tab-item">
+                        <div class="tab-icon-wrapper">🔔</div>
+                        <div class="tab-label">Notifications</div>
+                    </div>
+                    <div class="tab-item">
+                        <div class="tab-icon-wrapper">📊</div>
+                        <div class="tab-label">Analytics</div>
+                    </div>
                 </div>
-                <div class="tab-item">
-                    <div class="tab-icon">🔔</div>
-                    <div class="tab-label">Notifications</div>
-                </div>
-                <div class="tab-item">
-                    <div class="tab-icon">📊</div>
-                    <div class="tab-label">Analytics</div>
-                </div>
+            </div>
+
+            <!-- CTA Button -->
+            <div class="cta-section">
+                <button class="button-primary" onclick="openSettings()">
+                    Get Started
+                </button>
+                <p class="helper-text">
+                    Opens Safari settings to enable the extension for x.com
+                </p>
             </div>
         </div>
 
-        <!-- CTA -->
-        <button class="cta" onclick="enableExtension()">Enable Extension</button>
-
-        <!-- Help text -->
-        <p class="help">Opens Safari settings where you can<br>enable X41 for x.com</p>
+        <!-- Footer -->
+        <div class="footer">
+            X41 · Safari Extension for X.com
+        </div>
     </div>
 
     <script>
-        function enableExtension() {
-            try {
-                webkit.messageHandlers.controller.postMessage({ action: 'openSettings' });
-            } catch (err) {
-                alert('Please enable X41 in Settings → Safari → Extensions');
+        function openSettings() {
+            // Post message to native Swift controller via WebKit message handler
+            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.controller) {
+                window.webkit.messageHandlers.controller.postMessage({
+                    action: 'openSettings'
+                });
+            } else {
+                console.error('[X41] WebKit message handler not available');
             }
         }
     </script>
