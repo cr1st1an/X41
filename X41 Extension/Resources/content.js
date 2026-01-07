@@ -90,36 +90,8 @@
         style.id = 'x41-styles';
 
         style.textContent = `
-            /* X41 - Hide headers on all pages EXCEPT compose screen */
-            ${isComposePage ? `
-            /* Compose page: Make header compact and non-blocking */
-            header[role="banner"] {
-                position: absolute !important;
-                top: 0 !important;
-                left: 0 !important;
-                right: 0 !important;
-                height: auto !important;
-                min-height: 0 !important;
-                padding: 0 !important;
-                background: transparent !important;
-                pointer-events: none !important;
-                z-index: 10 !important;
-            }
-
-            /* Make header buttons clickable */
-            header[role="banner"] button,
-            header[role="banner"] a,
-            header[role="banner"] [role="button"] {
-                pointer-events: auto !important;
-            }
-
-            /* Remove header padding from main content */
-            [data-testid="primaryColumn"],
-            main,
-            [role="main"] {
-                padding-top: 0 !important;
-            }
-            ` : `
+            /* X41 - Hide headers on all pages EXCEPT compose */
+            ${!isComposePage ? `
             header[role="banner"],
             header,
             [role="banner"],
@@ -134,7 +106,7 @@
                 max-height: 0 !important;
                 overflow: hidden !important;
             }
-            `}
+            ` : ''}
 
             /* Always hide back buttons */
             [aria-label*="Back"],
@@ -168,13 +140,13 @@
     // ===== THEME MANAGEMENT =====
     const colors = {
         light: {
-            active: 'rgb(15, 20, 25)',
+            active: 'rgb(0, 0, 0)',
             inactive: 'rgb(83, 100, 113)',
             background: 'rgb(255, 255, 255)',
             border: 'rgb(239, 243, 244)'
         },
         dark: {
-            active: 'rgb(247, 249, 249)',
+            active: 'rgb(255, 255, 255)',
             inactive: 'rgb(113, 118, 123)',
             background: 'rgb(0, 0, 0)',
             border: 'rgb(47, 51, 54)'
@@ -185,13 +157,17 @@
         if (!state.tabBar) return;
 
         const theme = isDark ? 'dark' : 'light';
+        const currentPath = window.location.pathname;
 
         // Update tab bar background and border
         state.tabBar.style.backgroundColor = colors[theme].background;
         state.tabBar.style.borderTopColor = colors[theme].border;
 
         // Update all tab icon colors
-        state.tabElements.forEach(({ iconWrapper, isActive }) => {
+        state.tabElements.forEach(({ iconWrapper, href }) => {
+            // Recalculate isActive based on current path
+            const isActive = currentPath === href ||
+                           (state.username && href === `/${state.username}` && currentPath.startsWith(`/${state.username}`));
             const color = isActive ? colors[theme].active : colors[theme].inactive;
             iconWrapper.style.color = color;
         });
@@ -265,6 +241,11 @@
         // Create tab bar container
         const tabBar = document.createElement('div');
         tabBar.id = 'x41-tab-bar';
+
+        // Detect current theme
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = isDark ? 'dark' : 'light';
+
         tabBar.style.cssText = `
             position: fixed !important;
             bottom: 0 !important;
@@ -272,8 +253,8 @@
             right: 0 !important;
             width: 100% !important;
             height: 53px !important;
-            background-color: rgb(255, 255, 255);
-            border-top: 1px solid rgb(239, 243, 244);
+            background-color: ${colors[theme].background};
+            border-top: 1px solid ${colors[theme].border};
             display: flex !important;
             justify-content: space-around;
             align-items: center;

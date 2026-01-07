@@ -23,9 +23,7 @@
         "js": [ "content.js" ],
         "matches": [
             "*://x.com/*",
-            "*://*.x.com/*",
-            "*://twitter.com/*",
-            "*://*.twitter.com/*"
+            "*://*.x.com/*"
         ],
         "run_at": "document_start"
     }],

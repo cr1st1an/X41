@@ -34,10 +34,30 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func openSafariSettings() {
-        // Open Settings app to Safari Extensions page
-        if let url = URL(string: "App-prefs:SAFARI") {
-            UIApplication.shared.open(url, options: [:], completionHandler: nil)
-        }
+        // Show instructions
+        let alert = UIAlertController(
+            title: "Enable X41 Extension",
+            message: "Tap Safari → Extensions → X41 and toggle it on.\n\nThen allow access to x.com",
+            preferredStyle: .alert
+        )
+
+        alert.addAction(UIAlertAction(title: "Open Settings", style: .default) { _ in
+            // Try to open Safari settings, fallback to general Settings
+            if let url = URL(string: "App-prefs:root=SAFARI") {
+                UIApplication.shared.open(url, options: [:]) { success in
+                    if !success {
+                        // Fallback to main Settings app
+                        if let settingsUrl = URL(string: "App-prefs:") {
+                            UIApplication.shared.open(settingsUrl)
+                        }
+                    }
+                }
+            }
+        })
+
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        self.present(alert, animated: true)
     }
 
 }
