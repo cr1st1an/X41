@@ -52,7 +52,7 @@
 
         // Z-index management
         Z_INDEX: {
-            tabBar: 999999
+            tabBar: 10000
         }
     };
 
@@ -87,6 +87,18 @@
     // UTILITIES
     // ========================================
 
+    // Debug mode - set to false for production
+    const DEBUG = false;
+
+    /**
+     * Log errors in debug mode
+     */
+    function logError(context, error) {
+        if (DEBUG) {
+            console.error(`[X41] ${context}:`, error);
+        }
+    }
+
     /**
      * Debounce function calls
      */
@@ -107,6 +119,30 @@
      */
     function detectTheme() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    /**
+     * Safely set SVG content in a container (avoids innerHTML XSS risk)
+     * @param {HTMLElement} container - The container element
+     * @param {string} svgString - The SVG markup string
+     */
+    function setSVGContent(container, svgString) {
+        // Clear existing content safely
+        while (container.firstChild) {
+            container.removeChild(container.firstChild);
+        }
+
+        // Parse SVG string safely using template element
+        const template = document.createElement('template');
+        template.innerHTML = svgString.trim();
+        const svg = template.content.firstChild;
+
+        if (svg) {
+            svg.style.width = CONFIG.ICON_SIZE + 'px';
+            svg.style.height = CONFIG.ICON_SIZE + 'px';
+            svg.style.fill = 'currentColor';
+            container.appendChild(svg);
+        }
     }
 
     // ========================================
@@ -138,7 +174,7 @@
                 }
             }
         } catch (e) {
-            // Silent failure
+            logError('detectUsername.scriptParsing', e);
         }
 
         // Method 2: Check profile links in DOM (faster than waiting)
@@ -162,7 +198,7 @@
                 }
             }
         } catch (e) {
-            // Silent failure
+            logError('detectUsername.profileLinks', e);
         }
 
         // Method 3: Wait for it to appear (last resort)
@@ -187,7 +223,7 @@
                         }
                     }
                 } catch (e) {
-                    // Silent failure
+                    logError('detectUsername.retry', e);
                 }
 
                 // Retry or give up
@@ -261,7 +297,7 @@
             (document.head || document.documentElement).appendChild(style);
             state.styleElement = style;
         } catch (e) {
-            // Silent failure
+            logError('updateStyles', e);
         }
     }
 
@@ -429,16 +465,8 @@
             color: isActive ? colors.active : colors.inactive
         });
 
-        // Set icon
-        iconWrapper.innerHTML = getIconSVG(tab.icon, isActive);
-
-        // Style SVG
-        const svg = iconWrapper.querySelector('svg');
-        if (svg) {
-            svg.style.width = CONFIG.ICON_SIZE + 'px';
-            svg.style.height = CONFIG.ICON_SIZE + 'px';
-            svg.style.fill = 'currentColor';
-        }
+        // Set icon safely (avoids innerHTML XSS risk)
+        setSVGContent(iconWrapper, getIconSVG(tab.icon, isActive));
 
         element.appendChild(iconWrapper);
 
@@ -486,16 +514,8 @@
             // Update aria-current
             element.setAttribute('aria-current', isActive ? 'page' : 'false');
 
-            // Update icon
-            iconWrapper.innerHTML = getIconSVG(iconKey, isActive);
-
-            // Re-style SVG
-            const svg = iconWrapper.querySelector('svg');
-            if (svg) {
-                svg.style.width = CONFIG.ICON_SIZE + 'px';
-                svg.style.height = CONFIG.ICON_SIZE + 'px';
-                svg.style.fill = 'currentColor';
-            }
+            // Update icon safely
+            setSVGContent(iconWrapper, getIconSVG(iconKey, isActive));
 
             // Update color
             iconWrapper.style.color = isActive ? colors.active : colors.inactive;
@@ -631,7 +651,7 @@
             state.isInitialized = true;
 
         } catch (error) {
-            // Silent failure
+            logError('initialize', error);
         }
     }
 
@@ -646,7 +666,7 @@
             try {
                 fn();
             } catch (e) {
-                // Silent failure
+                logError('destroy.cleanup', e);
             }
         });
 
@@ -678,31 +698,6 @@
         document.addEventListener('DOMContentLoaded', initialize);
     } else {
         initialize();
-    }
-
-    // Expose for debugging
-    if (typeof window !== 'undefined') {
-        // Get version from manifest dynamically
-        const getVersion = () => {
-            try {
-                if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.getManifest) {
-                    const manifest = browser.runtime.getManifest();
-                    return manifest.version || 'unknown';
-                }
-                return 'unknown';
-            } catch (e) {
-                return 'unknown';
-            }
-        };
-
-        window.X41 = {
-            destroy,
-            state: () => ({ ...state }),
-            config: CONFIG,
-            get version() {
-                return getVersion();
-            }
-        };
     }
 
 })();

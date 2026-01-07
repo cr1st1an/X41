@@ -2,54 +2,45 @@
 //  SafariWebExtensionHandler.swift
 //  X41 Extension
 //
-//  Created by Cristian Castillo on 01/01/26.
+//  Handles native messaging between the Safari extension and the app.
+//  Currently minimal - the extension is fully self-contained in content.js.
 //
 
 import SafariServices
-import os.log
+import os
 
-/**
- * Safari Web Extension Handler for X41
- *
- * Currently minimal - no settings or native messaging needed
- * Extension is fully self-contained in content.js
- */
-class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
+/// Safari Web Extension Handler for X41
+///
+/// Receives and responds to messages from the web extension.
+/// Currently implements a minimal echo response as the extension
+/// is self-contained in JavaScript.
+final class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
+
+    private let logger = Logger(subsystem: "co.moshi.X41.Extension", category: "Handler")
+
+    /// Extension version - should match manifest.json
+    private let extensionVersion = "1.0"
 
     func beginRequest(with context: NSExtensionContext) {
-        // Get profile UUID (for logging only)
-        let request = context.inputItems.first as? NSExtensionItem
-
-        let profile: UUID?
-        if #available(iOS 17.0, macOS 14.0, *) {
-            profile = request?.userInfo?[SFExtensionProfileKey] as? UUID
-        } else {
-            profile = request?.userInfo?["profile"] as? UUID
+        guard let request = context.inputItems.first as? NSExtensionItem else {
+            logger.error("No input items in extension request")
+            context.completeRequest(returningItems: [], completionHandler: nil)
+            return
         }
 
-        let message: Any?
-        if #available(iOS 15.0, macOS 11.0, *) {
-            message = request?.userInfo?[SFExtensionMessageKey]
-        } else {
-            message = request?.userInfo?["message"]
-        }
+        // Extract profile UUID for logging
+        let profile = request.userInfo?[SFExtensionProfileKey] as? UUID
+        let message = request.userInfo?[SFExtensionMessageKey]
 
-        os_log(.default, "[X41] Received message: %@ (profile: %@)",
-               String(describing: message),
-               profile?.uuidString ?? "none")
+        logger.info("Received message: \(String(describing: message), privacy: .public) (profile: \(profile?.uuidString ?? "none", privacy: .public))")
 
-        // Echo response (minimal implementation)
+        // Build echo response
         let response = NSExtensionItem()
         let responseData: [String: Any] = [
             "echo": message as Any,
-            "version": "2.0.0"
+            "version": extensionVersion
         ]
-
-        if #available(iOS 15.0, macOS 11.0, *) {
-            response.userInfo = [SFExtensionMessageKey: responseData]
-        } else {
-            response.userInfo = ["message": responseData]
-        }
+        response.userInfo = [SFExtensionMessageKey: responseData]
 
         context.completeRequest(returningItems: [response], completionHandler: nil)
     }
