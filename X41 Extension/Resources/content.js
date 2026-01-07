@@ -1,11 +1,9 @@
 /**
  * X41 - Enhanced X.com Navigation
  *
- * Performance-optimized content script with:
+ * Minimal, memory-efficient content script with:
  * - Zero polling (event-driven architecture)
  * - Instant username detection via X's internal state
- * - Smart DOM observation
- * - Smooth transitions
  * - Proper cleanup and error handling
  */
 
@@ -18,7 +16,6 @@
 
     const CONFIG = {
         // Performance
-        MUTATION_DEBOUNCE_MS: 150,
         NAVIGATION_DEBOUNCE_MS: 100,
         MAX_USERNAME_RETRIES: 10,
         USERNAME_RETRY_DELAY_MS: 200,
@@ -26,7 +23,6 @@
         // UI
         TAB_BAR_HEIGHT: 53,
         ICON_SIZE: 26,
-        TRANSITION_DURATION_MS: 200,
 
         // Colors (matching X.com's design system)
         COLORS: {
@@ -48,18 +44,15 @@
 
         // Selectors (centralized for maintainability)
         SELECTORS: {
-            // Header - target both data-testid and semantic role for maximum compatibility
             topNavBar: '[data-testid="TopNavBar"]',
             headerBanner: 'header[role="banner"]',
             nativeTabBar: '[data-testid="BottomBar"]',
-            primaryColumn: '[data-testid="primaryColumn"]',
-            floatingButton: 'a[href="/compose/post"]'
+            primaryColumn: '[data-testid="primaryColumn"]'
         },
 
         // Z-index management
         Z_INDEX: {
-            tabBar: 999999,
-            styles: 1
+            tabBar: 999999
         }
     };
 
@@ -81,25 +74,13 @@
         styleElement: null,
 
         // Observers & listeners
-        observers: {
-            mutation: null,
-            intersection: null,
-            media: null
-        },
+        mediaQuery: null,
         cleanupFunctions: [],
 
         // State flags
         isInitialized: false,
         isDestroyed: false,
-        theme: 'light',
-
-        // Performance tracking
-        perf: {
-            initStart: performance.now(),
-            usernameDetected: null,
-            tabBarCreated: null,
-            stylesInjected: null
-        }
+        theme: 'light'
     };
 
     // ========================================
@@ -122,42 +103,10 @@
     }
 
     /**
-     * Throttle function calls
-     */
-    function throttle(func, limit) {
-        let inThrottle;
-        return function(...args) {
-            if (!inThrottle) {
-                func.apply(this, args);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
-            }
-        };
-    }
-
-    /**
-     * Safe DOM query with error handling
-     */
-    function safeQuery(selector, context = document) {
-        try {
-            return context.querySelector(selector);
-        } catch (e) {
-            return null;
-        }
-    }
-
-    /**
      * Detect current theme
      */
     function detectTheme() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-
-    /**
-     * Log performance metrics
-     */
-    function logPerf(label, value) {
-        state.perf[label] = value;
     }
 
     // ========================================
@@ -184,7 +133,6 @@
                     const match = content.match(/"screen_name":"([a-zA-Z0-9_]+)"/);
                     if (match && match[1]) {
                         state.username = match[1];
-                        logPerf('usernameDetected', performance.now());
                         return state.username;
                     }
                 }
@@ -198,14 +146,17 @@
             const profileLinks = document.querySelectorAll('a[href^="/"]');
             for (const link of profileLinks) {
                 const href = link.getAttribute('href');
-                if (href && href.startsWith('/') && !href.includes('/') && href.length > 1) {
-                    const ariaLabel = link.getAttribute('aria-label');
-                    if (ariaLabel && ariaLabel.includes('Profile')) {
-                        const username = href.substring(1);
-                        if (username && /^[a-zA-Z0-9_]+$/.test(username)) {
-                            state.username = username;
-                            logPerf('usernameDetected', performance.now());
-                            return state.username;
+                // Check for single-segment path like "/username" (not "/path/to/page")
+                if (href && href.startsWith('/') && href.length > 1) {
+                    const pathSegments = href.substring(1).split('/');
+                    if (pathSegments.length === 1) {
+                        const ariaLabel = link.getAttribute('aria-label');
+                        if (ariaLabel && ariaLabel.includes('Profile')) {
+                            const username = pathSegments[0];
+                            if (username && /^[a-zA-Z0-9_]+$/.test(username)) {
+                                state.username = username;
+                                return state.username;
+                            }
                         }
                     }
                 }
@@ -230,7 +181,6 @@
                             const match = content.match(/"screen_name":"([a-zA-Z0-9_]+)"/);
                             if (match && match[1]) {
                                 state.username = match[1];
-                                logPerf('usernameDetected', performance.now());
                                 resolve(state.username);
                                 return;
                             }
@@ -310,10 +260,6 @@
             // Inject into head
             (document.head || document.documentElement).appendChild(style);
             state.styleElement = style;
-
-            if (!state.perf.stylesInjected) {
-                logPerf('stylesInjected', performance.now());
-            }
         } catch (e) {
             // Silent failure
         }
@@ -350,12 +296,20 @@
                 padding-bottom: ${CONFIG.TAB_BAR_HEIGHT + 10}px !important;
             }
 
-            /* Tab bar - no animations to reduce layout work */
+            /* Reposition floating compose button above tab bar */
+            a[href="/compose/post"],
+            a[data-testid="SideNav_NewTweet_Button"],
+            a[aria-label*="Post"],
+            button[data-testid="SideNav_NewTweet_Button"] {
+                bottom: ${CONFIG.TAB_BAR_HEIGHT}px !important;
+            }
+
+            /* Tab bar */
             #x41-tab-bar {
                 opacity: 1;
             }
 
-            /* Tab interactions - minimal transitions */
+            /* Tab interactions */
             .x41-tab:hover {
                 background-color: var(--x41-hover-color);
             }
@@ -367,7 +321,7 @@
     // ========================================
 
     /**
-     * Create custom tab bar with smooth animations
+     * Create custom tab bar
      */
     async function createTabBar() {
         // Check if already exists
@@ -408,8 +362,7 @@
             alignItems: 'center',
             zIndex: CONFIG.Z_INDEX.tabBar.toString(),
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-            boxShadow: '0 -1px 3px rgba(0, 0, 0, 0.1)',
-            willChange: 'transform'  // Performance hint for animations
+            boxShadow: '0 -1px 3px rgba(0, 0, 0, 0.1)'
         });
 
         // Define tabs
@@ -433,8 +386,6 @@
 
         // Update active state
         updateTabBar();
-
-        logPerf('tabBarCreated', performance.now());
     }
 
     /**
@@ -647,23 +598,10 @@
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         mediaQuery.addEventListener('change', handleThemeChange);
 
-        state.observers.media = mediaQuery;
+        state.mediaQuery = mediaQuery;
         state.cleanupFunctions.push(() => {
             mediaQuery.removeEventListener('change', handleThemeChange);
         });
-    }
-
-    // ========================================
-    // DOM OBSERVATION (Disabled to minimize memory footprint)
-    // ========================================
-
-    /**
-     * Setup smart mutation observer - DISABLED
-     * Removed to prevent any potential memory issues
-     */
-    function setupObserver() {
-        // Observer disabled - extension is now completely passive
-        // If elements are removed, they won't be re-created
     }
 
     // ========================================
@@ -688,9 +626,6 @@
 
             // Create tab bar (waits for username)
             await createTabBar();
-
-            // Setup DOM observer
-            setupObserver();
 
             // Mark as initialized
             state.isInitialized = true;
@@ -725,11 +660,6 @@
             state.styleElement.remove();
         }
 
-        // Disconnect observers
-        if (state.observers.mutation) {
-            state.observers.mutation.disconnect();
-        }
-
         state.isDestroyed = true;
     }
 
@@ -752,11 +682,26 @@
 
     // Expose for debugging
     if (typeof window !== 'undefined') {
+        // Get version from manifest dynamically
+        const getVersion = () => {
+            try {
+                if (typeof browser !== 'undefined' && browser.runtime && browser.runtime.getManifest) {
+                    const manifest = browser.runtime.getManifest();
+                    return manifest.version || 'unknown';
+                }
+                return 'unknown';
+            } catch (e) {
+                return 'unknown';
+            }
+        };
+
         window.X41 = {
             destroy,
-            state: () => ({ ...state, observers: '...' }),
+            state: () => ({ ...state }),
             config: CONFIG,
-            version: '2.0.0'
+            get version() {
+                return getVersion();
+            }
         };
     }
 
