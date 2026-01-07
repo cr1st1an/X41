@@ -3,167 +3,181 @@
 //  X41
 //
 //  Onboarding view for the X41 Safari Extension.
+//  Designed for users who have never used a Safari extension before.
 //
 
 import SwiftUI
 import os
 
 struct ContentView: View {
-    private let logger = Logger(subsystem: "co.moshi.X41", category: "UI")
     @Environment(\.colorScheme) private var colorScheme
-    @State private var showingInstructions = false
+    @State private var showingSetup = false
 
     var body: some View {
         ZStack {
-            // Background
             Color(uiColor: .systemBackground)
                 .ignoresSafeArea()
 
-            // Content
             VStack(spacing: 0) {
-                Spacer()
-                    .frame(minHeight: 40, maxHeight: 80)
+                // Main content - centered in available space
+                VStack(spacing: 0) {
+                    // App Icon
+                    Image("LargeIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 100, height: 100)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .shadow(
+                            color: colorScheme == .dark ? .white.opacity(0.06) : .black.opacity(0.12),
+                            radius: colorScheme == .dark ? 12 : 10,
+                            x: 0,
+                            y: colorScheme == .dark ? 0 : 3
+                        )
+                        .padding(.bottom, 24)
 
-                // App Icon
-                Image("LargeIcon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 120, height: 120)
-                    .clipShape(RoundedRectangle(cornerRadius: 26.6, style: .continuous))
-                    .shadow(
-                        color: colorScheme == .dark ? .white.opacity(0.08) : .black.opacity(0.15),
-                        radius: colorScheme == .dark ? 16 : 12,
-                        x: 0,
-                        y: colorScheme == .dark ? 0 : 4
-                    )
-                    .padding(.bottom, 32)
+                    // Headline
+                    Text("Skip the Feed")
+                        .font(.system(size: 28, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 8)
 
-                // Title
-                Text("Kill the Feed.")
-                    .font(.system(size: 32, weight: .bold, design: .default))
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 12)
-                
-                // Subtitle
-                Text("X41 is Focused. Minimal. Yours.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-                    .padding(.bottom, 40)
+                    // Subheadline
+                    Text("Open X directly to your notifications,\nprofile, or analytics.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(2)
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 32)
 
-                // Feature Preview
-                FeaturePreview()
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 40)
+                    // Visual preview
+                    FeaturePreview()
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 24)
 
-                Spacer()
+                    // Trust signal
+                    Text("It changes the navigation only for x.com")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxHeight: .infinity)
 
-                // CTA Section
-                VStack(spacing: 16) {
+                // CTA Section - fixed at bottom
+                VStack(spacing: 12) {
                     Button {
-                        showingInstructions = true
+                        showingSetup = true
                     } label: {
-                        Text("Enable Extension")
+                        Text("Get Started")
                             .font(.headline)
                             .foregroundStyle(Color(uiColor: .systemBackground))
                             .frame(maxWidth: .infinity)
-                            .frame(height: 54)
+                            .frame(height: 52)
                             .background(Color.primary)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    .buttonStyle(PrimaryButtonStyle())
+                    .buttonStyle(ScaleButtonStyle())
                     .padding(.horizontal, 24)
 
-                    Text("Quick setup in Settings")
+                    Text("Takes about 30 seconds")
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
                 }
-                .padding(.bottom, 16)
+                .padding(.bottom, 12)
 
                 // Footer
-                HStack(spacing: 4) {
-                    Image(systemName: "safari")
-                        .font(.caption2)
-                    Text("Safari Extension for X.com")
-                        .font(.caption2)
-                }
-                .foregroundStyle(.quaternary)
-                .padding(.bottom, 8)
+                Text("Safari Extension")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+                    .padding(.bottom, 8)
             }
         }
-        .sheet(isPresented: $showingInstructions) {
-            SetupInstructionsSheet()
+        .sheet(isPresented: $showingSetup) {
+            SetupSheet()
         }
     }
 }
 
-// MARK: - Setup Instructions Sheet
+// MARK: - Setup Sheet
 
-private struct SetupInstructionsSheet: View {
-    private let logger = Logger(subsystem: "co.moshi.X41", category: "UI")
-
-    // HIG: Steps should be concise and scannable
-    private let steps: [(title: String, detail: String)] = [
-        ("Open Settings", "Tap the button below"),
-        ("Safari", "Scroll down and tap Safari"),
-        ("Extensions", "Tap Extensions"),
-        ("Enable X41", "Turn on the X41 toggle"),
-        ("Allow Access", "Set to \"All Websites\" or add x.com")
-    ]
-
+private struct SetupSheet: View {
     var body: some View {
         VStack(spacing: 0) {
-            // Scrollable content
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // Header - HIG: Large title 34pt bold
-                    VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Setup")
                             .font(.largeTitle.bold())
 
-                        Text("Enable X41 in Safari")
+                        Text("Follow these steps in Settings")
                             .font(.body)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.top, 32) // Space below drag indicator
+                    .padding(.top, 36)
+                    .padding(.bottom, 36)
 
-                    // Steps list
+                    // Steps - clean and spaced
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                            InstructionRow(
-                                number: index + 1,
-                                title: step.title,
-                                detail: step.detail,
-                                isLast: index == steps.count - 1
-                            )
-                        }
+                        StepRow(
+                            number: 1,
+                            title: "Open Safari Settings",
+                            detail: "Settings → Apps → Safari",
+                            isLast: false
+                        )
+                        
+                        StepRow(
+                            number: 2,
+                            title: "Open Extensions",
+                            detail: "In the \"General\" section",
+                            isLast: false
+                        )
+                        
+                        StepRow(
+                            number: 3,
+                            title: "Open X41",
+                            detail: "Under \"Allow these extensions\"",
+                            isLast: false
+                        )
+
+                        StepRow(
+                            number: 4,
+                            title: "Enable \"Allow Extension\"",
+                            detail: "Tap to turn on the toggle",
+                            isLast: false
+                        )
+
+                        StepRow(
+                            number: 5,
+                            title: "Tap x.com and select \"Allow\"",
+                            detail: "Under \"Permissions\"",
+                            isLast: true
+                        )
                     }
+                    .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 20) // HIG: Standard margin
-                .padding(.bottom, 16)
+                .padding(.horizontal, 24)
             }
 
-            // Fixed bottom button - HIG: 44pt minimum touch target
+            // Fixed bottom button
             VStack(spacing: 0) {
                 Divider()
 
                 Button(action: openSettings) {
-                    Label("Open Settings", systemImage: "gear")
+                    Label("Open Settings", systemImage: "arrow.up.forward.app")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Color(uiColor: .systemBackground))
                         .frame(maxWidth: .infinity)
-                        .frame(height: 50) // HIG: 44pt minimum, 50pt comfortable
+                        .frame(height: 50)
                         .background(Color.primary)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
+                .buttonStyle(ScaleButtonStyle())
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
                 .padding(.bottom, 8)
             }
             .background(Color(uiColor: .systemBackground))
-            .safeAreaPadding(.bottom) // HIG: Respect home indicator
+            .safeAreaPadding(.bottom)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
@@ -171,7 +185,6 @@ private struct SetupInstructionsSheet: View {
     }
 
     private func openSettings() {
-        // Try Safari settings first, then Settings root, then fallback
         let urls = ["App-prefs:SAFARI", "App-prefs:", UIApplication.openSettingsURLString]
         tryOpen(urls: urls, index: 0)
     }
@@ -184,55 +197,53 @@ private struct SetupInstructionsSheet: View {
     }
 }
 
-// MARK: - Instruction Row
+// MARK: - Step Row
 
-private struct InstructionRow: View {
+private struct StepRow: View {
     let number: Int
     let title: String
     let detail: String
     let isLast: Bool
 
     var body: some View {
-        HStack(alignment: .top, spacing: 14) {
-            // Step number with connecting line
+        HStack(alignment: .top, spacing: 16) {
+            // Number indicator with line
             VStack(spacing: 0) {
-                // HIG: Minimum 44pt for interactive, but this is display-only
                 Text("\(number)")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.callout.weight(.semibold))
                     .foregroundStyle(Color(uiColor: .systemBackground))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 30, height: 30)
                     .background(Color.primary)
                     .clipShape(Circle())
 
-                // Connecting line
                 if !isLast {
                     Rectangle()
-                        .fill(Color(uiColor: .tertiaryLabel))
-                        .frame(width: 1.5)
+                        .fill(Color(uiColor: .separator))
+                        .frame(width: 1)
                         .frame(maxHeight: .infinity)
                 }
             }
 
-            // Content - HIG: 17pt body, 15pt secondary
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.body.weight(.medium))
+                    .font(.body.weight(.semibold))
 
                 Text(detail)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            .padding(.bottom, isLast ? 0 : 20)
+            .padding(.top, 4)
+            .padding(.bottom, isLast ? 0 : 28)
 
             Spacer(minLength: 0)
         }
-        .frame(minHeight: 44) // HIG: Row minimum height
+        .frame(minHeight: 56)
     }
 }
 
-// MARK: - Primary Button Style
+// MARK: - Scale Button Style
 
-private struct PrimaryButtonStyle: ButtonStyle {
+private struct ScaleButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.7 : 1.0)
@@ -246,34 +257,34 @@ private struct PrimaryButtonStyle: ButtonStyle {
 private struct FeaturePreview: View {
     var body: some View {
         HStack(spacing: 0) {
-            FeatureTab(icon: "person.fill", label: "Profile", isActive: false)
-            FeatureTab(icon: "bell.fill", label: "Notifications", isActive: true)
-            FeatureTab(icon: "chart.bar.fill", label: "Analytics", isActive: false)
+            PreviewTab(icon: "person.fill", label: "Profile", isActive: false)
+            PreviewTab(icon: "bell.fill", label: "Notifications", isActive: true)
+            PreviewTab(icon: "chart.bar.fill", label: "Analytics", isActive: false)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(uiColor: .secondarySystemBackground))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator).opacity(0.4), lineWidth: 0.5)
         }
     }
 }
 
-private struct FeatureTab: View {
+private struct PreviewTab: View {
     let icon: String
     let label: String
     let isActive: Bool
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 22, weight: isActive ? .semibold : .regular))
+                .font(.system(size: 20, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(isActive ? Color.primary : Color.secondary)
-                .frame(height: 28)
+                .frame(height: 24)
 
             Text(label)
                 .font(.caption2)
@@ -281,17 +292,17 @@ private struct FeatureTab: View {
                 .foregroundStyle(isActive ? Color.primary : Color.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background {
             if isActive {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color(uiColor: .tertiarySystemBackground))
             }
         }
     }
 }
 
-// MARK: - Preview
+// MARK: - Previews
 
 #Preview {
     ContentView()
@@ -300,4 +311,10 @@ private struct FeatureTab: View {
 #Preview("Dark Mode") {
     ContentView()
         .preferredColorScheme(.dark)
+}
+
+#Preview("Setup Sheet") {
+    Text("").sheet(isPresented: .constant(true)) {
+        SetupSheet()
+    }
 }

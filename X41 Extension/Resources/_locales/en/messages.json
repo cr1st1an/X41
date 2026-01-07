@@ -4,7 +4,7 @@
         "description": "The display name for the extension."
     },
     "extension_description": {
-        "message": "Use X.COM in single player mode. Hide unwanted navigation items.",
+        "message": "Skip the feed. Open X directly to notifications, profile, or analytics.",
         "description": "Description of what the extension does."
     }
 }

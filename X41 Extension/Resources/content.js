@@ -31,28 +31,21 @@
         TAB_BAR_HEIGHT: 49,
         ICON_SIZE: 24,
 
-        // Default colors (fallback if extraction fails)
+        // Device-appropriate colors (light/dark only, based on system preference)
         COLORS: {
             light: {
-                active: 'rgb(15, 20, 25)',
-                inactive: 'rgb(83, 100, 113)',
-                background: 'rgb(255, 255, 255)',
-                border: 'rgb(239, 243, 244)',
-                hover: 'rgba(15, 20, 25, 0.1)'
-            },
-            dim: {
-                active: 'rgb(247, 249, 249)',
-                inactive: 'rgb(139, 152, 165)',
-                background: 'rgb(21, 32, 43)',
-                border: 'rgb(56, 68, 77)',
-                hover: 'rgba(247, 249, 249, 0.1)'
+                active: 'rgb(0, 0, 0)',           // Black
+                inactive: 'rgb(142, 142, 147)',   // iOS system grey
+                background: 'rgb(255, 255, 255)', // White
+                border: 'rgb(209, 209, 214)',     // iOS separator grey
+                hover: 'rgba(0, 0, 0, 0.05)'
             },
             dark: {
-                active: 'rgb(231, 233, 234)',
-                inactive: 'rgb(113, 118, 123)',
-                background: 'rgb(0, 0, 0)',
-                border: 'rgb(47, 51, 54)',
-                hover: 'rgba(231, 233, 234, 0.1)'
+                active: 'rgb(255, 255, 255)',     // White
+                inactive: 'rgb(142, 142, 147)',   // iOS system grey
+                background: 'rgb(0, 0, 0)',       // Black
+                border: 'rgb(56, 56, 58)',        // iOS dark separator
+                hover: 'rgba(255, 255, 255, 0.05)'
             }
         },
 
@@ -108,10 +101,6 @@
         // Observers & listeners
         cleanupFunctions: [],
         badgeObserver: null,
-
-        // Theme
-        theme: 'light', // 'light', 'dim', or 'dark'
-        extractedColors: null,
 
         // State flags
         isInitialized: false,
@@ -226,103 +215,22 @@
     }
 
     // ========================================
-    // THEME DETECTION (Matches X.com's actual theme)
+    // THEME (Device preference only - no flashing)
     // ========================================
 
     /**
-     * Detect X.com's actual theme from the page
-     * X.com has 3 themes: Light (white), Dim (dark blue), Lights Out (pure black)
+     * Get device/system theme preference (instant, no DOM needed)
      */
-    function detectTheme() {
-        try {
-            // Method 1: Check body background color
-            const bodyBg = getComputedStyle(document.body).backgroundColor;
-            const rgb = bodyBg.match(/\d+/g);
-
-            if (rgb && rgb.length >= 3) {
-                const r = parseInt(rgb[0]);
-                const g = parseInt(rgb[1]);
-                const b = parseInt(rgb[2]);
-
-                // Light theme: rgb(255, 255, 255)
-                if (r > 250 && g > 250 && b > 250) {
-                    return 'light';
-                }
-
-                // Dim theme: rgb(21, 32, 43) - has a blue tint
-                if (r < 30 && g > 25 && g < 40 && b > 35 && b < 50) {
-                    return 'dim';
-                }
-
-                // Lights Out: rgb(0, 0, 0)
-                if (r < 10 && g < 10 && b < 10) {
-                    return 'dark';
-                }
-
-                // Fallback: check brightness
-                const brightness = (r + g + b) / 3;
-                return brightness < 128 ? 'dark' : 'light';
-            }
-        } catch (e) {
-            logError('detectTheme', e);
-        }
-
-        // Fallback to system preference
+    function getDeviceTheme() {
         return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
 
     /**
-     * Extract colors from X.com's UI elements
-     */
-    function extractColors() {
-        try {
-            const theme = detectTheme();
-            const colors = { ...CONFIG.COLORS[theme] };
-
-            // Try to extract actual colors from X.com's elements
-            const primaryColumn = document.querySelector(CONFIG.SELECTORS.primaryColumn);
-            if (primaryColumn) {
-                const style = getComputedStyle(primaryColumn);
-                const bg = style.backgroundColor;
-                if (bg && bg !== 'rgba(0, 0, 0, 0)') {
-                    colors.background = bg;
-                }
-            }
-
-            // Extract border color from existing borders
-            const borderElement = document.querySelector('[data-testid="cellInnerDiv"]');
-            if (borderElement) {
-                const borderColor = getComputedStyle(borderElement).borderBottomColor;
-                if (borderColor && borderColor !== 'rgba(0, 0, 0, 0)') {
-                    colors.border = borderColor;
-                }
-            }
-
-            // Extract active color from primary buttons or links
-            const activeLink = document.querySelector('a[aria-selected="true"], a[aria-current="page"]');
-            if (activeLink) {
-                const color = getComputedStyle(activeLink).color;
-                if (color) {
-                    colors.active = color;
-                }
-            }
-
-            state.extractedColors = colors;
-            return colors;
-        } catch (e) {
-            logError('extractColors', e);
-            return CONFIG.COLORS[detectTheme()];
-        }
-    }
-
-    /**
-     * Get current theme colors
+     * Get colors for current device theme
      */
     function getColors() {
-        if (state.extractedColors) {
-            return state.extractedColors;
-        }
-        return CONFIG.COLORS[state.theme] || CONFIG.COLORS.light;
+        const theme = getDeviceTheme();
+        return CONFIG.COLORS[theme] || CONFIG.COLORS.light;
     }
 
     // ========================================
@@ -584,6 +492,82 @@
     }
 
     // ========================================
+    // UI MODIFICATIONS
+    // ========================================
+
+    /**
+     * Hide "Maybe later" buttons that navigate to home feed
+     */
+    function hideMaybeLaterButtons() {
+        const hideButtons = () => {
+            const buttons = document.querySelectorAll('button[type="button"]');
+            buttons.forEach(button => {
+                if (button.textContent.trim() === 'Maybe later') {
+                    // Make invisible but preserve space
+                    button.style.visibility = 'hidden';
+                    button.style.pointerEvents = 'none';
+                }
+            });
+        };
+
+        // Run immediately
+        hideButtons();
+
+        // Watch for dynamically added buttons
+        const observer = new MutationObserver(hideButtons);
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        state.cleanupFunctions.push(() => observer.disconnect());
+    }
+
+    /**
+     * Reposition toast notifications above our tab bar
+     */
+    function watchToasts() {
+        const tabBarOffset = CONFIG.TAB_BAR_HEIGHT;
+
+        const repositionToasts = () => {
+            // Find toast container in #layers
+            const layers = document.getElementById('layers');
+            if (!layers) return;
+
+            // X.com toasts are typically direct children of #layers with bottom positioning
+            const toasts = layers.querySelectorAll('[role="alert"], [data-testid="toast"]');
+            toasts.forEach(toast => {
+                // Find the positioned ancestor
+                let positioned = toast;
+                while (positioned && positioned !== layers) {
+                    const style = positioned.style;
+                    if (style && style.bottom !== undefined && style.bottom !== '') {
+                        const currentBottom = parseInt(style.bottom) || 0;
+                        if (currentBottom < tabBarOffset) {
+                            style.bottom = `calc(${tabBarOffset}px + env(safe-area-inset-bottom, 0px))`;
+                        }
+                        break;
+                    }
+                    positioned = positioned.parentElement;
+                }
+            });
+        };
+
+        // Watch #layers for changes
+        const observeLayers = () => {
+            const layers = document.getElementById('layers');
+            if (!layers) {
+                setTimeout(observeLayers, 500);
+                return;
+            }
+
+            const observer = new MutationObserver(repositionToasts);
+            observer.observe(layers, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] });
+
+            state.cleanupFunctions.push(() => observer.disconnect());
+        };
+
+        observeLayers();
+    }
+
+    // ========================================
     // URL HANDLING
     // ========================================
 
@@ -646,7 +630,13 @@
             a[data-testid="SideNav_NewTweet_Button"],
             a[aria-label*="Post"],
             button[data-testid="SideNav_NewTweet_Button"] {
-                bottom: calc(${tabBarHeight + 16}px + env(safe-area-inset-bottom, 0px)) !important;
+                bottom: calc(${tabBarHeight}px + env(safe-area-inset-bottom, 0px)) !important;
+            }
+
+            /* Reposition toast/snackbar notifications above tab bar */
+            [data-testid="toast"],
+            #layers [role="alert"] {
+                z-index: ${CONFIG.Z_INDEX.tabBar + 1} !important;
             }
 
             /* Tab bar base */
@@ -747,9 +737,8 @@
             throw new Error('Cannot create tab bar without username');
         }
 
-        // Detect theme and extract colors
-        state.theme = detectTheme();
-        const colors = extractColors();
+        // Get colors based on device theme
+        const colors = getColors();
 
         // Create container
         const tabBar = document.createElement('div');
@@ -758,6 +747,7 @@
         tabBar.setAttribute('aria-label', 'X41 navigation');
 
         // Apply styles with safe area support
+        // Start hidden to prevent flash, will be shown after colors are applied
         Object.assign(tabBar.style, {
             position: 'fixed',
             bottom: '0',
@@ -775,7 +765,8 @@
             fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            opacity: '0'
         });
 
         // Define tabs
@@ -804,6 +795,9 @@
 
         // Start watching notification badge
         watchNotificationBadge();
+
+        // Show tab bar now that it's fully styled
+        tabBar.style.opacity = '1';
     }
 
     /**
@@ -901,21 +895,13 @@
     }
 
     /**
-     * Update tab bar active states and theme
+     * Update tab bar active states
      */
     function updateTabBar() {
         if (!isConnected(state.tabBar) || !state.username) return;
 
         const currentPath = window.location.pathname;
-        const newTheme = detectTheme();
-
-        // Update theme if changed
-        if (state.theme !== newTheme) {
-            state.theme = newTheme;
-            state.extractedColors = null; // Reset extracted colors
-        }
-
-        const colors = extractColors();
+        const colors = getColors();
 
         // Update tab bar colors
         state.tabBar.style.backgroundColor = colors.background;
@@ -980,9 +966,6 @@
 
         state.currentPath = newPath;
 
-        // Check for redirects
-        if (handleRedirects()) return;
-
         // Update styles if page type changed
         updateStyles();
 
@@ -1021,41 +1004,15 @@
     // ========================================
 
     /**
-     * Watch for theme changes (both system and X.com)
+     * Watch for device theme changes only
      */
     function setupThemeWatcher() {
-        // Watch system theme
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handleSystemThemeChange = () => {
-            state.extractedColors = null; // Reset to force re-extraction
-            updateTabBar();
-        };
-        mediaQuery.addEventListener('change', handleSystemThemeChange);
-
-        // Watch for X.com theme changes via MutationObserver on body
-        const bodyObserver = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                if (mutation.type === 'attributes' &&
-                    (mutation.attributeName === 'style' || mutation.attributeName === 'class')) {
-                    const newTheme = detectTheme();
-                    if (newTheme !== state.theme) {
-                        state.theme = newTheme;
-                        state.extractedColors = null;
-                        updateTabBar();
-                    }
-                    break;
-                }
-            }
-        });
-
-        bodyObserver.observe(document.body, {
-            attributes: true,
-            attributeFilter: ['style', 'class']
-        });
+        const handleThemeChange = () => updateTabBar();
+        mediaQuery.addEventListener('change', handleThemeChange);
 
         state.cleanupFunctions.push(() => {
-            mediaQuery.removeEventListener('change', handleSystemThemeChange);
-            bodyObserver.disconnect();
+            mediaQuery.removeEventListener('change', handleThemeChange);
         });
     }
 
@@ -1109,6 +1066,12 @@
 
             // Setup theme watcher
             setupThemeWatcher();
+
+            // Hide "Maybe later" buttons that lead to home feed
+            hideMaybeLaterButtons();
+
+            // Watch and reposition toast notifications
+            watchToasts();
 
             // Create tab bar (waits for username)
             await createTabBar();
