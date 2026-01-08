@@ -62,3 +62,6 @@ fastlane/test_output
 
 # Code Injection
 iOSInjectionProject/
+
+# References
+/xref

@@ -1,66 +1,69 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with code in this repository.
 
 ## Project Overview
 
-X41 is a Safari Web Extension for iOS that modifies the X.com (Twitter) mobile web experience. It provides a "single player mode" by replacing the native navigation with a custom tab bar focused on Profile, Notifications, and Analytics.
+X41 is a Safari Web Extension for iOS that provides a focused X.com experience. It replaces the native navigation with a custom tab bar (Profile, Notifications, Analytics) and redirects the home feed to notifications.
 
 ## Build & Development
 
-This is an Xcode project targeting iOS 17.0+. Open `X41.xcodeproj` in Xcode to build and run.
+Xcode project targeting iOS 17.0+.
 
-- **Build**: Cmd+B in Xcode or `xcodebuild -project X41.xcodeproj -scheme X41`
-- **Run**: Build and run on iOS 17+ simulator or device via Xcode (Cmd+R)
-- **Enable extension**: After installing, enable in iOS Settings → Safari → Extensions → X41
+```bash
+# Build
+xcodebuild -project X41.xcodeproj -scheme X41
+
+# Or open in Xcode and Cmd+B
+```
+
+**Enable extension**: Settings → Apps → Safari → Extensions → X41
 
 ## Architecture
 
 ### Two Targets
 
-1. **X41** (Container App) - `X41/`
-   - SwiftUI-based iOS app that hosts the extension
-   - Shows onboarding UI with instructions for enabling the extension
-   - Entry point: `X41App.swift` with `ContentView.swift`
+1. **X41** (Container App) - SwiftUI onboarding UI
+2. **X41 Extension** (Safari Web Extension) - The actual extension
 
-2. **X41 Extension** (Safari Web Extension) - `X41 Extension/`
-   - The browser extension that runs on x.com
-   - `SafariWebExtensionHandler.swift` - Native message handler (minimal echo response)
-   - `Resources/` - Web extension files (manifest, content script)
+### Key Files
 
-### Container App Files (`X41/`)
+- `X41/X41App.swift` - App entry point
+- `X41/ContentView.swift` - Onboarding UI
+- `X41 Extension/Resources/content.js` - Extension logic (~375 lines)
+- `X41 Extension/Resources/manifest.json` - Manifest V3
 
-- `X41App.swift` - SwiftUI app entry point (@main)
-- `ContentView.swift` - Onboarding UI with settings navigation
-- `Models/X41Error.swift` - Custom error types
-- `PrivacyInfo.xcprivacy` - Privacy manifest (required for App Store)
+### content.js Architecture
 
-### Extension Files (`X41 Extension/Resources/`)
+Simple, focused implementation following Control Panel for Twitter patterns:
 
-- `manifest.json` - Extension manifest (Manifest V3), targets `*://x.com/*`
-- `content.js` - Main extension logic, injected at `document_start`
-- `_locales/en/messages.json` - Localization strings
+```
+Entry Point
+├── Redirect / and /home → /notifications
+├── Inject styles (hide native bars)
+├── Patch history (SPA navigation)
+└── main()
+    ├── Wait for #layers
+    ├── Get $reactRoot
+    ├── Get username from Redux state (with retry)
+    ├── Create tab bar
+    └── Start DOM observer
+```
 
-### Content Script Behavior (`content.js`)
+**Core Functions:**
+- `getState()` - Access X.com's Redux store via React props
+- `getUserScreenName()` - Get logged-in username from state
+- `getElement(selector)` - Wait for element using requestAnimationFrame
+- `createTabBar()` - Build the 3-tab navigation
+- `updateTabs()` - Sync active state with current path
+- `observeDOM()` - Watch for badge updates, hide "Maybe later" buttons
 
-The content script is self-contained and implements:
-- **Redirect**: `/` and `/home` redirect to `/notifications`
-- **Custom Tab Bar**: Fixed bottom navigation with Profile, Notifications, Analytics tabs
-- **Header Hiding**: Hides X.com's top navigation bar (except on compose pages)
-- **Native Tab Bar Hiding**: Hides X.com's native bottom bar
-- **Theme Support**: Matches system light/dark mode via `prefers-color-scheme`
-- **Username Detection**: Extracts logged-in username from page scripts or DOM for profile link
-- **SPA Navigation**: Intercepts `pushState`/`replaceState` for navigation updates
+**Patterns (from CPFT):**
+- Wait for `#layers` before initialization
+- Access state via `$reactRoot.firstElementChild.__reactProps$...`
+- Use requestAnimationFrame for element polling
+- Patch `history.pushState/replaceState` for SPA navigation
 
-Key design patterns in `content.js`:
-- Event-driven (no polling)
-- Uses debouncing for navigation handling
-- All selectors centralized in `CONFIG.SELECTORS`
-- Error logging via `logError()` helper (DEBUG flag controls output)
-- Safe SVG insertion via `setSVGContent()` to avoid innerHTML XSS risks
+## Attribution
 
-## Tech Stack
-
-- **iOS**: Swift 6, SwiftUI, iOS 17.0+
-- **Extension**: JavaScript (ES6+), Manifest V3
-- **Build**: Xcode 16+
+`getState`, `getUserScreenName` adapted from [Control Panel for Twitter](https://github.com/nickytonline/control-panel-for-twitter) (MIT).
