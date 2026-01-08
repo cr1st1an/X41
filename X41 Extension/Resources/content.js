@@ -12,7 +12,8 @@
     // ========================================
 
     const TAB_BAR_HEIGHT = 49;
-    const Z_INDEX = 10000;
+    const SAFE_AREA = 'env(safe-area-inset-bottom)';
+    const Z_INDEX = 100; // Above page content; mask is shrunk to not overlap
 
     const ICONS = {
         profile: {
@@ -32,23 +33,19 @@
     // STATE
     // ========================================
 
-    let $reactRoot = null;
     let $tabBar = null;
     let username = null;
-    let currentPath = location.pathname;
+    let previousActivePath = null;
+    let currentActivePath = null;
 
     // ========================================
-    // REACT STATE ACCESS
-    // Adapted from Control Panel for Twitter (MIT)
+    // USERNAME DETECTION
+    // Patterns adapted from Control Panel for Twitter (MIT)
     // https://github.com/nickytonline/control-panel-for-twitter
-    // Functions: getState, getUserScreenName
     // ========================================
-
-    // Note: React props aren't accessible from Safari content scripts (isolated world)
-    // We use script tag parsing instead
 
     function getUserScreenName() {
-        // Method 1: Script tags (most reliable in Safari)
+        // Script tag parsing (React props not accessible in Safari's isolated world)
         const scripts = document.querySelectorAll('script:not([src])');
         for (const script of scripts) {
             const text = script.textContent || '';
@@ -134,18 +131,30 @@
                 overflow: hidden !important;
             }
             [data-testid="primaryColumn"] {
-                padding-bottom: ${TAB_BAR_HEIGHT + 20}px !important;
+                padding-bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA} + 20px) !important;
             }
             a[href="/compose/post"] {
-                bottom: ${TAB_BAR_HEIGHT}px !important;
+                bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
+            }
+            /* Toast notifications - flush with tab bar */
+            #layers [data-testid="toast"],
+            #layers [role="alert"] {
+                bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
+            }
+            /* Hide tab bar when sheets/menus/dropdowns are open */
+            body:has(#layers [data-testid="sheetDialog"]) #x41-tab-bar,
+            body:has(#layers [role="menu"]) #x41-tab-bar,
+            body:has(#layers [data-testid="Dropdown"]) #x41-tab-bar {
+                opacity: 0;
+                pointer-events: none;
             }
             #x41-tab-bar {
                 position: fixed;
                 bottom: 0;
                 left: 0;
                 right: 0;
-                height: calc(${TAB_BAR_HEIGHT}px + env(safe-area-inset-bottom));
-                padding-bottom: env(safe-area-inset-bottom);
+                height: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA});
+                padding-bottom: ${SAFE_AREA};
                 background: rgba(var(--x41-bg), 0.85);
                 -webkit-backdrop-filter: blur(20px);
                 backdrop-filter: blur(20px);
@@ -153,6 +162,7 @@
                 display: flex;
                 z-index: ${Z_INDEX};
                 font-family: -apple-system, system-ui, sans-serif;
+                transition: opacity 0.15s ease-out;
             }
             .x41-tab {
                 flex: 1;
@@ -166,7 +176,12 @@
             }
             .x41-tab.active { color: rgb(var(--x41-active)); }
             .x41-tab:active { opacity: 0.6; }
-            .x41-tab svg { width: 24px; height: 24px; fill: currentColor; }
+            .x41-tab svg {
+                width: 24px;
+                height: 24px;
+                fill: currentColor;
+                pointer-events: none;
+            }
             .x41-badge {
                 position: absolute;
                 top: 6px;
@@ -226,21 +241,28 @@
             $tabBar.appendChild(a);
         });
 
-        // SPA navigation - intercept clicks and use native links
-        $tabBar.addEventListener('click', handleTabClick);
+        // SPA navigation - use touchend for faster mobile response
+        $tabBar.addEventListener('touchend', handleTabTap, { passive: false });
+        $tabBar.addEventListener('click', handleTabTap);
 
         document.body.appendChild($tabBar);
         updateTabs();
     }
 
-    function handleTabClick(e) {
+    let lastTapTime = 0;
+
+    function handleTabTap(e) {
         const tab = e.target.closest('.x41-tab');
         if (!tab) return;
 
         e.preventDefault();
-        const href = tab.getAttribute('href');
 
-        // Use main world script for SPA navigation (same pattern for all tabs)
+        // Prevent double-firing (touchend + click within 300ms)
+        const now = Date.now();
+        if (now - lastTapTime < 300) return;
+        lastTapTime = now;
+
+        const href = tab.getAttribute('href');
         navigateSPA(href);
     }
 
@@ -313,10 +335,26 @@
     // NAVIGATION
     // ========================================
 
+    let lastPath = location.pathname;
+
     function onNavigate() {
         const path = location.pathname;
-        if (path === currentPath) return;
-        currentPath = path;
+
+        // Intercept /home navigation - redirect to previous page (not current, to avoid loops)
+        if (path === '/' || path === '/home') {
+            const destination = previousActivePath || (username ? `/${username}` : '/notifications');
+            navigateSPA(destination);
+            return; // Don't update lastPath - let next cycle detect the change
+        }
+
+        if (path === lastPath) return;
+        lastPath = path;
+
+        // Track previous/current for future redirects (exclude compose/intent)
+        if (!path.includes('/compose/') && !path.includes('/intent/')) {
+            previousActivePath = currentActivePath;
+            currentActivePath = path;
+        }
 
         // Show header on compose pages
         document.body.classList.toggle('x41-compose',
@@ -326,14 +364,10 @@
     }
 
     function watchNavigation() {
-        // Content scripts run in isolated world - we can't intercept X.com's pushState
-        // Use polling to detect URL changes from SPA navigation
-        let lastPath = location.pathname;
+        // Content scripts run in isolated world - can't intercept X.com's pushState
+        // Poll for URL changes from SPA navigation
         setInterval(() => {
-            if (location.pathname !== lastPath) {
-                lastPath = location.pathname;
-                onNavigate();
-            }
+            if (location.pathname !== lastPath) onNavigate();
         }, 100);
 
         // Also catch back/forward
@@ -345,17 +379,10 @@
     // ========================================
 
     function observeDOM() {
+        let timeout;
         const observer = new MutationObserver(() => {
-            // Update badge when DOM changes
-            updateBadge();
-
-            // Hide "Maybe later" buttons
-            document.querySelectorAll('button[type="button"]').forEach(btn => {
-                if (btn.textContent?.trim() === 'Maybe later') {
-                    btn.style.visibility = 'hidden';
-                    btn.style.pointerEvents = 'none';
-                }
-            });
+            clearTimeout(timeout);
+            timeout = setTimeout(updateBadge, 200);
         });
 
         observer.observe(document.body, { childList: true, subtree: true });
@@ -369,23 +396,16 @@
         // Wait for app to load
         await getElement('#layers');
 
-        $reactRoot = document.querySelector('#react-root');
-
-        // Get username
-        username = getUserScreenName();
-        if (!username) {
-            // Retry a few times
-            for (let i = 0; i < 10; i++) {
-                await new Promise(r => setTimeout(r, 500));
-                username = getUserScreenName();
-                if (username) break;
-            }
+        // Get username (retry up to 5 seconds)
+        for (let i = 0; i < 10; i++) {
+            username = getUserScreenName();
+            if (username) break;
+            await new Promise(r => setTimeout(r, 500));
         }
 
         if (!username) return;
 
         // Create UI
-        injectStyles();
         createTabBar();
         observeDOM();
 
