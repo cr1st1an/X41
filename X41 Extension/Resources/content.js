@@ -168,6 +168,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                position: relative;
                 height: ${TAB_BAR_HEIGHT}px;
                 color: rgb(var(--x41-inactive));
                 text-decoration: none;
@@ -184,15 +185,15 @@
             .x41-badge {
                 position: absolute;
                 top: 6px;
-                margin-left: 12px;
+                left: calc(50% + 2px);
                 min-width: 16px;
                 height: 16px;
-                padding: 0 4px;
+                box-sizing: border-box;
                 background: rgb(29,155,240);
                 color: white;
                 font-size: 11px;
-                font-weight: 700;
-                border-radius: 8px;
+                font-weight: 500;
+                border-radius: 9999px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -287,7 +288,9 @@
             let active = false;
 
             if (id === 'profile' && username) {
-                active = path === `/${username}` || path.startsWith(`/${username}/`);
+                const lowerPath = path.toLowerCase();
+                const lowerUser = username.toLowerCase();
+                active = lowerPath === `/${lowerUser}` || lowerPath.startsWith(`/${lowerUser}/`);
             } else if (id === 'notifications') {
                 active = path.startsWith('/notifications');
             } else if (id === 'analytics') {
@@ -316,14 +319,17 @@
 
         let badge = tab.querySelector('.x41-badge');
         const count = getNotificationCount();
+        const onNotifications = location.pathname.startsWith('/notifications');
 
-        if (count > 0) {
+        if (count > 0 && !onNotifications) {
             if (!badge) {
                 badge = document.createElement('span');
                 badge.className = 'x41-badge';
-                tab.style.position = 'relative';
+                badge.setAttribute('aria-live', 'polite');
                 tab.appendChild(badge);
             }
+            const label = count === 1 ? '1 unread item' : `${count > 99 ? '99+' : count} unread items`;
+            badge.setAttribute('aria-label', label);
             badge.textContent = count > 99 ? '99+' : count;
         } else if (badge) {
             badge.remove();
@@ -374,17 +380,11 @@
     }
 
     // ========================================
-    // OBSERVERS
+    // BADGE POLLING
     // ========================================
 
-    function observeDOM() {
-        let timeout;
-        const observer = new MutationObserver(() => {
-            clearTimeout(timeout);
-            timeout = setTimeout(updateBadge, 200);
-        });
-
-        observer.observe(document.body, { childList: true, subtree: true });
+    function startBadgePolling() {
+        setInterval(updateBadge, 2000);
     }
 
     // ========================================
@@ -406,7 +406,7 @@
 
         // Create UI
         createTabBar();
-        observeDOM();
+        startBadgePolling();
 
         // Watch for theme changes
         matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColors);
