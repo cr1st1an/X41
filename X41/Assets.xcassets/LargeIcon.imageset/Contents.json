@@ -1,12 +1,12 @@
 {
   "images" : [
     {
-      "filename" : "LargeIcon.png",
+      "filename" : "Icon-iOS-Default-128x128@1x.png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "LargeIcon@2x.png",
+      "filename" : "Icon-iOS-Default-128x128@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
