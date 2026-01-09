@@ -133,12 +133,11 @@
             [data-testid="primaryColumn"] {
                 padding-bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA} + 20px) !important;
             }
-            a[href="/compose/post"] {
+            [data-testid="FloatingActionButtons_Tweet_Button"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
             }
             /* Toast notifications - flush with tab bar */
-            #layers [data-testid="toast"],
-            #layers [role="alert"] {
+            #layers [data-testid="toast"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
             }
             /* Hide tab bar when sheets/menus/dropdowns are open */
