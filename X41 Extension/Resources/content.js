@@ -13,7 +13,10 @@
 
     const TAB_BAR_HEIGHT = 49;
     const SAFE_AREA = 'env(safe-area-inset-bottom)';
-    const Z_INDEX = 100; // Above page content; mask is shrunk to not overlap
+    const Z_INDEX = 100;
+    const ELEMENT_TIMEOUT = 30000; // 30s timeout for element detection
+    const USERNAME_RETRY_ATTEMPTS = 10;
+    const USERNAME_RETRY_DELAY = 500;
 
     const ICONS = {
         profile: {
@@ -37,6 +40,10 @@
     let username = null;
     let previousActivePath = null;
     let currentActivePath = null;
+    let lastTapTime = 0;
+    let lastTappedTab = null;
+    let navigationIntervalId = null;
+    let badgeIntervalId = null;
 
     // ========================================
     // USERNAME DETECTION
@@ -45,7 +52,7 @@
     // ========================================
 
     function getUserScreenName() {
-        // Script tag parsing (React props not accessible in Safari's isolated world)
+        // Method 1: Script tag parsing (React props not accessible in Safari's isolated world)
         const scripts = document.querySelectorAll('script:not([src])');
         for (const script of scripts) {
             const text = script.textContent || '';
@@ -63,21 +70,28 @@
         return null;
     }
 
-    function getNotificationCount() {
+    function getNotificationBadgeInfo() {
         // Try to get from DOM badge
         const badge = document.querySelector('a[href="/notifications"] [aria-label]');
         if (badge) {
-            const match = (badge.getAttribute('aria-label') || '').match(/(\d+)/);
-            if (match) return parseInt(match[1], 10);
+            const ariaLabel = badge.getAttribute('aria-label') || '';
+            const match = ariaLabel.match(/(\d+)/);
+            if (match) {
+                return { hasNotifications: true, count: parseInt(match[1], 10) };
+            }
+            // Badge element exists but can't parse count - has notifications but unknown count
+            if (ariaLabel.length > 0) {
+                return { hasNotifications: true, count: null };
+            }
         }
-        return 0;
+        return { hasNotifications: false, count: 0 };
     }
 
     // ========================================
     // UTILITIES
     // ========================================
 
-    function getElement(selector, timeout = Infinity) {
+    function getElement(selector, timeout = ELEMENT_TIMEOUT) {
         return new Promise(resolve => {
             const startTime = Date.now();
             let rafId;
@@ -86,7 +100,7 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     resolve(el);
-                } else if (timeout !== Infinity && Date.now() - startTime > timeout) {
+                } else if (Date.now() - startTime > timeout) {
                     resolve(null);
                 } else {
                     rafId = requestAnimationFrame(check);
@@ -123,8 +137,8 @@
                 position: fixed !important;
                 bottom: -100px !important;
             }
-            body:not(.x41-compose) [data-testid="TopNavBar"],
-            body:not(.x41-compose) header[role="banner"] {
+            body:not(.x41-show-header) [data-testid="TopNavBar"],
+            body:not(.x41-show-header) header[role="banner"] {
                 visibility: hidden !important;
                 height: 0 !important;
                 min-height: 0 !important;
@@ -197,6 +211,13 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                padding: 0 4px;
+            }
+            .x41-badge.x41-badge-dot {
+                width: 8px;
+                height: 8px;
+                min-width: 8px;
+                padding: 0;
             }
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -217,11 +238,13 @@
     function createTabBar() {
         if ($tabBar) return;
 
-        const tabs = [
-            { id: 'profile', href: `/${username}`, icon: 'profile' },
-            { id: 'notifications', href: '/notifications', icon: 'notifications' },
-            { id: 'analytics', href: '/i/account_analytics', icon: 'analytics' }
-        ];
+        // Build tabs - profile only if username detected
+        const tabs = [];
+        if (username) {
+            tabs.push({ id: 'profile', href: `/${username}`, icon: 'profile' });
+        }
+        tabs.push({ id: 'notifications', href: '/notifications', icon: 'notifications' });
+        tabs.push({ id: 'analytics', href: '/i/account_analytics', icon: 'analytics' });
 
         $tabBar = document.createElement('nav');
         $tabBar.id = 'x41-tab-bar';
@@ -249,21 +272,35 @@
         updateTabs();
     }
 
-    let lastTapTime = 0;
-
     function handleTabTap(e) {
         const tab = e.target.closest('.x41-tab');
         if (!tab) return;
 
         e.preventDefault();
 
-        // Prevent double-firing (touchend + click within 300ms)
         const now = Date.now();
-        if (now - lastTapTime < 300) return;
-        lastTapTime = now;
+        const tabId = tab.dataset.tab;
+        const isActive = tab.classList.contains('active');
+        const isSameTab = lastTappedTab === tabId;
+        const isQuickTap = now - lastTapTime < 300;
 
-        const href = tab.getAttribute('href');
-        navigateSPA(href);
+        // Quick tap on same active tab = scroll to top (iOS convention)
+        if (isQuickTap && isSameTab && isActive) {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            lastTapTime = now;
+            return;
+        }
+
+        // Block double-fire from touchend + click on same tab
+        if (isQuickTap && isSameTab) return;
+
+        lastTapTime = now;
+        lastTappedTab = tabId;
+
+        // Already on this tab, do nothing (first tap sets state for potential double-tap)
+        if (isActive) return;
+
+        navigateSPA(tab.getAttribute('href'));
     }
 
     function navigateSPA(path) {
@@ -318,19 +355,29 @@
         if (!tab) return;
 
         let badge = tab.querySelector('.x41-badge');
-        const count = getNotificationCount();
         const onNotifications = location.pathname.startsWith('/notifications');
+        const { hasNotifications, count } = getNotificationBadgeInfo();
 
-        if (count > 0 && !onNotifications) {
+        if (hasNotifications && !onNotifications) {
             if (!badge) {
                 badge = document.createElement('span');
                 badge.className = 'x41-badge';
                 badge.setAttribute('aria-live', 'polite');
                 tab.appendChild(badge);
             }
-            const label = count === 1 ? '1 unread item' : `${count > 99 ? '99+' : count} unread items`;
-            badge.setAttribute('aria-label', label);
-            badge.textContent = count > 99 ? '99+' : count;
+
+            if (count !== null && count > 0) {
+                // Show count
+                const label = count === 1 ? '1 unread item' : `${count > 99 ? '99+' : count} unread items`;
+                badge.setAttribute('aria-label', label);
+                badge.textContent = count > 99 ? '99+' : count;
+                badge.classList.remove('x41-badge-dot');
+            } else {
+                // Show dot fallback (can't parse count but has notifications)
+                badge.setAttribute('aria-label', 'Unread notifications');
+                badge.textContent = '';
+                badge.classList.add('x41-badge-dot');
+            }
         } else if (badge) {
             badge.remove();
         }
@@ -355,15 +402,15 @@
         if (path === lastPath) return;
         lastPath = path;
 
-        // Track previous/current for future redirects (exclude compose/intent)
-        if (!path.includes('/compose/') && !path.includes('/intent/')) {
+        // Track previous/current for future redirects (exclude compose/intent/messages)
+        if (!path.includes('/compose/') && !path.includes('/intent/') && !path.includes('/messages/')) {
             previousActivePath = currentActivePath;
             currentActivePath = path;
         }
 
-        // Show header on compose pages
-        document.body.classList.toggle('x41-compose',
-            path.includes('/compose/') || path.includes('/intent/'));
+        // Show header on compose, intent, and messages pages
+        const showHeader = path.includes('/compose/') || path.includes('/intent/') || path.includes('/messages/');
+        document.body.classList.toggle('x41-show-header', showHeader);
 
         updateTabs();
     }
@@ -371,7 +418,7 @@
     function watchNavigation() {
         // Content scripts run in isolated world - can't intercept X.com's pushState
         // Poll for URL changes from SPA navigation
-        setInterval(() => {
+        navigationIntervalId = setInterval(() => {
             if (location.pathname !== lastPath) onNavigate();
         }, 100);
 
@@ -384,7 +431,22 @@
     // ========================================
 
     function startBadgePolling() {
-        setInterval(updateBadge, 2000);
+        badgeIntervalId = setInterval(updateBadge, 2000);
+    }
+
+    // ========================================
+    // CLEANUP
+    // ========================================
+
+    function cleanup() {
+        if (navigationIntervalId) {
+            clearInterval(navigationIntervalId);
+            navigationIntervalId = null;
+        }
+        if (badgeIntervalId) {
+            clearInterval(badgeIntervalId);
+            badgeIntervalId = null;
+        }
     }
 
     // ========================================
@@ -392,24 +454,33 @@
     // ========================================
 
     async function main() {
-        // Wait for app to load
-        await getElement('#layers');
-
-        // Get username (retry up to 5 seconds)
-        for (let i = 0; i < 10; i++) {
-            username = getUserScreenName();
-            if (username) break;
-            await new Promise(r => setTimeout(r, 500));
+        // Wait for app to load (with timeout)
+        const layers = await getElement('#layers');
+        if (!layers) {
+            console.warn('[X41] Timeout waiting for X.com to load');
+            return;
         }
 
-        if (!username) return;
+        // Get username (retry up to 5 seconds)
+        for (let i = 0; i < USERNAME_RETRY_ATTEMPTS; i++) {
+            username = getUserScreenName();
+            if (username) break;
+            await new Promise(r => setTimeout(r, USERNAME_RETRY_DELAY));
+        }
 
-        // Create UI
+        if (!username) {
+            console.warn('[X41] Username detection failed, using 2-tab fallback');
+        }
+
+        // Create UI (works with or without username - graceful degradation)
         createTabBar();
         startBadgePolling();
 
         // Watch for theme changes
         matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColors);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', cleanup);
     }
 
     // ========================================

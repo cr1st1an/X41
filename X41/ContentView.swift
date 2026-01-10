@@ -36,13 +36,13 @@ struct ContentView: View {
                         .padding(.bottom, 24)
 
                     // Headline
-                    Text("Skip the Feed")
-                        .font(.system(size: 28, weight: .bold))
+                    Text("Welcome to X41")
+                        .font(.system(size: 24, weight: .bold))
                         .multilineTextAlignment(.center)
                         .padding(.bottom, 8)
 
                     // Subheadline
-                    Text("Open X directly to your notifications,\nprofile, or analytics.")
+                    Text("A calmer way to use X.com")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -56,7 +56,7 @@ struct ContentView: View {
                         .padding(.bottom, 24)
 
                     // Trust signal
-                    Text("It changes the navigation only for x.com")
+                    Text("Everything you need. Nothing you don’t.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -67,28 +67,26 @@ struct ContentView: View {
                     Button {
                         showingSetup = true
                     } label: {
-                        Text("Get Started")
-                            .font(.headline)
-                            .foregroundStyle(Color(uiColor: .systemBackground))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 52)
-                            .background(Color.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        HStack(spacing: 6) {
+                            Text("Enable X41")
+                            Image(systemName: "chevron.right")
+                                .font(.headline.weight(.semibold))
+                        }
+                        .font(.headline)
+                        .foregroundStyle(Color(uiColor: .systemBackground))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .buttonStyle(ScaleButtonStyle())
                     .padding(.horizontal, 24)
 
-                    Text("Takes about 30 seconds")
+                    Text("Safari Extension")
                         .font(.footnote)
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.bottom, 12)
-
-                // Footer
-                Text("Safari Extension")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-                    .padding(.bottom, 8)
             }
         }
         .sheet(isPresented: $showingSetup) {
@@ -127,28 +125,28 @@ private struct SetupSheet: View {
                         
                         StepRow(
                             number: 2,
-                            title: "Open Extensions",
-                            detail: "In the \"General\" section",
+                            title: "Tap: Extensions",
+                            detail: "Under the \"General\" section",
                             isLast: false
                         )
                         
                         StepRow(
                             number: 3,
-                            title: "Open X41",
+                            title: "Select X41",
                             detail: "Under \"Allow these extensions\"",
                             isLast: false
                         )
 
                         StepRow(
                             number: 4,
-                            title: "Enable \"Allow Extension\"",
-                            detail: "Tap to turn on the toggle",
+                            title: "Tap: \"Allow Extension\"",
+                            detail: "Turn on the toggle ON",
                             isLast: false
                         )
 
                         StepRow(
                             number: 5,
-                            title: "Tap x.com and select \"Allow\"",
+                            title: "Tap: x.com and select \"Allow\"",
                             detail: "Under \"Permissions\"",
                             isLast: true
                         )
