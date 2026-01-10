@@ -1,25 +1,44 @@
 /**
  * X41 - Main World Script
  *
- * Runs in the main world (not isolated) to access X.com's React Router.
- * Communicates with content.js via postMessage.
+ * Runs in the main world (not isolated) to:
+ * 1. Trigger React Router navigation via history.pushState
+ * 2. Notify content script of SPA navigation (no polling needed)
  */
 
-window.addEventListener('message', function(event) {
-    // Security: only accept messages from same window and origin
-    if (event.source !== window) return;
-    if (event.origin !== location.origin) return;
-    if (event.data?.type !== 'X41_NAVIGATE') return;
+(function() {
+    'use strict';
 
-    const path = event.data.path;
+    // Intercept pushState/replaceState to notify content script of navigation
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
 
-    // Validate path: must be string starting with /, no protocol injection, no double slashes
-    if (typeof path === 'string' &&
-        path.startsWith('/') &&
-        !path.includes('://') &&
-        !path.includes('//') &&
-        path.length < 2048) {
-        history.pushState({}, '', path);
-        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
-    }
-});
+    history.pushState = function(...args) {
+        originalPushState.apply(this, args);
+        window.postMessage({ type: 'X41_NAVIGATED' }, '*');
+    };
+
+    history.replaceState = function(...args) {
+        originalReplaceState.apply(this, args);
+        window.postMessage({ type: 'X41_NAVIGATED' }, '*');
+    };
+
+    // Handle navigation requests from content script
+    window.addEventListener('message', function(event) {
+        if (event.source !== window) return;
+        if (event.origin !== location.origin) return;
+        if (event.data?.type !== 'X41_NAVIGATE') return;
+
+        const path = event.data.path;
+
+        // Validate path: must be string starting with /, no protocol injection
+        if (typeof path === 'string' &&
+            path.startsWith('/') &&
+            !path.includes('://') &&
+            !path.includes('//') &&
+            path.length < 2048) {
+            history.pushState({}, '', path);
+            window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+        }
+    });
+})();

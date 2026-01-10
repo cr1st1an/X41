@@ -42,7 +42,6 @@
     let currentActivePath = null;
     let lastTapTime = 0;
     let lastTappedTab = null;
-    let navigationIntervalId = null;
     let badgeIntervalId = null;
 
     // ========================================
@@ -418,11 +417,12 @@
     }
 
     function watchNavigation() {
-        // Content scripts run in isolated world - can't intercept X.com's pushState
-        // Poll for URL changes from SPA navigation
-        navigationIntervalId = setInterval(() => {
-            if (location.pathname !== lastPath) onNavigate();
-        }, 100);
+        // Listen for navigation events from injected.js (intercepts pushState/replaceState)
+        window.addEventListener('message', (event) => {
+            if (event.source !== window) return;
+            if (event.data?.type !== 'X41_NAVIGATED') return;
+            onNavigate();
+        });
 
         // Also catch back/forward
         window.addEventListener('popstate', onNavigate);
@@ -433,21 +433,28 @@
     // ========================================
 
     function startBadgePolling() {
-        badgeIntervalId = setInterval(updateBadge, 2000);
+        // Prevent multiple intervals
+        if (badgeIntervalId) return;
+        badgeIntervalId = setInterval(updateBadge, 5000);
     }
 
     // ========================================
-    // CLEANUP
+    // CLEANUP & VISIBILITY
     // ========================================
 
-    function cleanup() {
-        if (navigationIntervalId) {
-            clearInterval(navigationIntervalId);
-            navigationIntervalId = null;
-        }
+    function stopBadgePolling() {
         if (badgeIntervalId) {
             clearInterval(badgeIntervalId);
             badgeIntervalId = null;
+        }
+    }
+
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            stopBadgePolling();
+        } else {
+            startBadgePolling();
+            updateBadge();
         }
     }
 
@@ -481,8 +488,11 @@
         // Watch for theme changes
         matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColors);
 
+        // Pause polling when tab is hidden (saves memory/CPU)
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         // Cleanup on page unload
-        window.addEventListener('beforeunload', cleanup);
+        window.addEventListener('beforeunload', stopBadgePolling);
     }
 
     // ========================================
