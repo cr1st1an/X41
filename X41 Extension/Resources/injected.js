@@ -12,6 +12,7 @@
     // Intercept pushState/replaceState to notify content script of navigation
     const originalPushState = history.pushState;
     const originalReplaceState = history.replaceState;
+    const initialPath = location.pathname;
 
     history.pushState = function(...args) {
         originalPushState.apply(this, args);
@@ -41,4 +42,9 @@
             window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
         }
     });
+
+    // Signal ready - if path changed during script load, content.js will catch it
+    if (location.pathname !== initialPath) {
+        window.postMessage({ type: 'X41_NAVIGATED' }, '*');
+    }
 })();
