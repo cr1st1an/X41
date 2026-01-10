@@ -264,7 +264,8 @@
             $tabBar.appendChild(a);
         });
 
-        // SPA navigation - use touchend for faster mobile response
+        // touchend for immediate touch response + double-tap detection
+        // click for VoiceOver accessibility (blocked if touch just handled it)
         $tabBar.addEventListener('touchend', handleTabTap, { passive: false });
         $tabBar.addEventListener('click', handleTabTap);
 
@@ -279,26 +280,27 @@
         e.preventDefault();
 
         const now = Date.now();
-        const tabId = tab.dataset.tab;
-        const isActive = tab.classList.contains('active');
-        const isSameTab = lastTappedTab === tabId;
-        const isQuickTap = now - lastTapTime < 300;
 
-        // Quick tap on same active tab = scroll to top (iOS convention)
-        if (isQuickTap && isSameTab && isActive) {
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            lastTapTime = now;
+        // Block click if touch just handled it (within 500ms)
+        if (e.type === 'click' && now - lastTapTime < 500) {
             return;
         }
 
-        // Block double-fire from touchend + click on same tab
-        if (isQuickTap && isSameTab) return;
+        const tabId = tab.dataset.tab;
+        const isActive = tab.classList.contains('active');
+        const isSameTab = lastTappedTab === tabId;
+        const timeSinceLastTap = now - lastTapTime;
+        const isDoubleTap = isSameTab && timeSinceLastTap < 500;
 
         lastTapTime = now;
         lastTappedTab = tabId;
 
-        // Already on this tab, do nothing (first tap sets state for potential double-tap)
-        if (isActive) return;
+        if (isActive) {
+            if (isDoubleTap) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            return;
+        }
 
         navigateSPA(tab.getAttribute('href'));
     }
