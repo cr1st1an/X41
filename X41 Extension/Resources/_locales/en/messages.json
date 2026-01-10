@@ -1,10 +1,10 @@
 {
     "extension_name": {
         "message": "X41",
-        "description": "The display name for the extension."
+        "description": "Extension name shown in Safari settings."
     },
     "extension_description": {
-        "message": "Skip the feed. Open X directly to notifications, profile, or analytics.",
-        "description": "Description of what the extension does."
+        "message": "Skip the feed. Just Profile, Notifications, and Analytics.",
+        "description": "Extension description shown in Safari settings."
     }
 }
