@@ -24,8 +24,7 @@ Read these files:
 ### Step 3: Read Supporting Files
 
 1. `X41 Extension/SafariWebExtensionHandler.swift` - Native messaging
-2. `X41/Models/X41Error.swift` - Error types
-3. `CLAUDE.md` - Project guidelines
+2. `CLAUDE.md` - Project guidelines
 
 ### Step 4: Produce This Summary
 

@@ -56,12 +56,12 @@ Entry Point (runs at document_start)
 ├── Redirect / and /home → /notifications
 ├── injectStyles() - hide native bars immediately
 ├── injectMainWorldScript() - load injected.js
-├── watchNavigation() - poll for URL changes (100ms)
+├── watchNavigation() - listen for X41_NAVIGATED messages from injected.js
 └── main() (on DOMContentLoaded)
     ├── Wait for #layers element (30s timeout)
     ├── getUserScreenName() - parse from script tags (5s retry)
     ├── createTabBar() - 2 or 3 tabs depending on username detection
-    ├── startBadgePolling() - 2s interval badge updates
+    ├── startBadgePolling() - 5s interval badge updates
     └── cleanup() - clear intervals on page unload
 ```
 
@@ -72,11 +72,11 @@ Entry Point (runs at document_start)
 **Graceful degradation**: If username detection fails, shows 2-tab bar (Notifications + Analytics only). Profile tab requires username.
 
 **SPA navigation**: Content scripts can't intercept X.com's `history.pushState`. Solution:
-1. Poll `location.pathname` every 100ms
-2. For tab clicks, post message to `injected.js` which runs in main world
+1. `injected.js` patches `history.pushState`/`replaceState` and notifies content.js via postMessage
+2. For tab clicks, content.js posts message to `injected.js` which runs in main world
 3. `injected.js` validates path and calls `history.pushState` + dispatches `popstate` event
 
-**Double-tap scroll**: Tapping an already-active tab within 300ms scrolls to top (iOS convention).
+**Double-tap scroll**: Tapping an already-active tab within 500ms scrolls to top (iOS convention).
 
 **Tab bar hiding**: Uses CSS `:has()` selector to hide tab bar when sheets/menus are open:
 ```css

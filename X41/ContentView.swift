@@ -42,7 +42,7 @@ struct ContentView: View {
                         .padding(.bottom, 8)
 
                     // Subheadline
-                    Text("A calmer way to use X.com")
+                    Text("A calm way to post on X.com")
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -68,7 +68,7 @@ struct ContentView: View {
                         showingSetup = true
                     } label: {
                         HStack(spacing: 6) {
-                            Text("Enable X41")
+                            Text("Enable Safari Extension")
                             Image(systemName: "chevron.right")
                                 .font(.headline.weight(.semibold))
                         }
@@ -82,9 +82,11 @@ struct ContentView: View {
                     .buttonStyle(ScaleButtonStyle())
                     .padding(.horizontal, 24)
 
-                    Text("Safari Extension")
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
+                    Link(destination: URL(string: "https://x.com/cr1st1an")!) {
+                        Text("Need help? Contact @cr1st1an on X")
+                            .font(.footnote)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
                 .padding(.bottom, 12)
             }

@@ -43,6 +43,7 @@
     let lastTapTime = 0;
     let lastTappedTab = null;
     let badgeIntervalId = null;
+    let hasVisitedContentPage = false;
 
     // ========================================
     // USERNAME DETECTION
@@ -159,6 +160,11 @@
             body:has(#layers [data-testid="Dropdown"]) #x41-tab-bar {
                 opacity: 0;
                 pointer-events: none;
+            }
+            /* Hide back button when there's nowhere to go back to */
+            body.x41-hide-back [data-testid="app-bar-back"] {
+                visibility: hidden !important;
+                pointer-events: none !important;
             }
             #x41-tab-bar {
                 position: fixed;
@@ -388,30 +394,34 @@
     // NAVIGATION
     // ========================================
 
-    let lastPath = location.pathname;
+    let lastPath = null;
 
     function onNavigate() {
         const path = location.pathname;
 
-        // Intercept /home navigation - redirect to previous page (not current, to avoid loops)
+        // Intercept /home navigation - redirect to previous page or compose
         if (path === '/' || path === '/home') {
-            const destination = previousActivePath || (username ? `/${username}` : '/notifications');
-            navigateSPA(destination);
-            return; // Don't update lastPath - let next cycle detect the change
+            navigateSPA(previousActivePath || '/compose/post');
+            return;
         }
 
         if (path === lastPath) return;
         lastPath = path;
 
-        // Track previous/current for future redirects (exclude compose/intent/messages)
-        if (!path.includes('/compose/') && !path.includes('/intent/') && !path.includes('/messages/')) {
+        // Track visits to content pages (not compose/intent/messages)
+        const isContentPage = !path.includes('/compose/') && !path.includes('/intent/') && !path.includes('/messages/');
+        if (isContentPage) {
+            hasVisitedContentPage = true;
             previousActivePath = currentActivePath;
             currentActivePath = path;
         }
 
         // Show header on compose, intent, and messages pages
-        const showHeader = path.includes('/compose/') || path.includes('/intent/') || path.includes('/messages/');
-        document.body.classList.toggle('x41-show-header', showHeader);
+        document.body.classList.toggle('x41-show-header', !isContentPage);
+
+        // Hide back button on compose if user hasn't visited any content page
+        const hideBack = path.includes('/compose/') && !hasVisitedContentPage;
+        document.body.classList.toggle('x41-hide-back', hideBack);
 
         updateTabs();
     }
@@ -493,15 +503,18 @@
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', stopBadgePolling);
+
+        // Set initial navigation state (handles first page load)
+        onNavigate();
     }
 
     // ========================================
     // ENTRY POINT
     // ========================================
 
-    // Redirect home to notifications
+    // Redirect home to compose
     if (location.pathname === '/' || location.pathname === '/home') {
-        location.replace('/notifications');
+        location.replace('/compose/post');
         return;
     }
 
