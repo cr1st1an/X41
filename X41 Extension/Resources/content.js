@@ -13,7 +13,10 @@
 
     const TAB_BAR_HEIGHT = 49;
     const SAFE_AREA = 'env(safe-area-inset-bottom)';
-    const Z_INDEX = 100; // Above page content; mask is shrunk to not overlap
+    const Z_INDEX = 100;
+    const ELEMENT_TIMEOUT = 30000; // 30s timeout for element detection
+    const USERNAME_RETRY_ATTEMPTS = 10;
+    const USERNAME_RETRY_DELAY = 500;
 
     const ICONS = {
         profile: {
@@ -35,8 +38,11 @@
 
     let $tabBar = null;
     let username = null;
-    let previousActivePath = null;
-    let currentActivePath = null;
+    let activeTab = null;           // Currently highlighted tab: 'profile' | 'notifications' | 'analytics' | null
+    let lastRootTabPath = null;     // Last visited ROOT path (for /home redirect fallback)
+    let lastTapTime = 0;
+    let lastTappedTab = null;
+    let badgeIntervalId = null;
 
     // ========================================
     // USERNAME DETECTION
@@ -45,7 +51,7 @@
     // ========================================
 
     function getUserScreenName() {
-        // Script tag parsing (React props not accessible in Safari's isolated world)
+        // Method 1: Script tag parsing (React props not accessible in Safari's isolated world)
         const scripts = document.querySelectorAll('script:not([src])');
         for (const script of scripts) {
             const text = script.textContent || '';
@@ -63,21 +69,28 @@
         return null;
     }
 
-    function getNotificationCount() {
+    function getNotificationBadgeInfo() {
         // Try to get from DOM badge
         const badge = document.querySelector('a[href="/notifications"] [aria-label]');
         if (badge) {
-            const match = (badge.getAttribute('aria-label') || '').match(/(\d+)/);
-            if (match) return parseInt(match[1], 10);
+            const ariaLabel = badge.getAttribute('aria-label') || '';
+            const match = ariaLabel.match(/(\d+)/);
+            if (match) {
+                return { hasNotifications: true, count: parseInt(match[1], 10) };
+            }
+            // Badge element exists but can't parse count - has notifications but unknown count
+            if (ariaLabel.length > 0) {
+                return { hasNotifications: true, count: null };
+            }
         }
-        return 0;
+        return { hasNotifications: false, count: 0 };
     }
 
     // ========================================
     // UTILITIES
     // ========================================
 
-    function getElement(selector, timeout = Infinity) {
+    function getElement(selector, timeout = ELEMENT_TIMEOUT) {
         return new Promise(resolve => {
             const startTime = Date.now();
             let rafId;
@@ -86,7 +99,7 @@
                 const el = document.querySelector(selector);
                 if (el) {
                     resolve(el);
-                } else if (timeout !== Infinity && Date.now() - startTime > timeout) {
+                } else if (Date.now() - startTime > timeout) {
                     resolve(null);
                 } else {
                     rafId = requestAnimationFrame(check);
@@ -98,6 +111,48 @@
 
     function isDarkMode() {
         return matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+
+    // ========================================
+    // TAB STATE HELPERS
+    // ========================================
+
+    function getRootPath(tabId) {
+        if (tabId === 'profile' && username) return `/${username}`;
+        if (tabId === 'notifications') return '/notifications';
+        if (tabId === 'analytics') return '/i/account_analytics';
+        return null;
+    }
+
+    function getTabForPath(path) {
+        // Returns tab ID if path exactly matches a root path
+        const lowerPath = path.toLowerCase();
+        if (username && lowerPath === `/${username.toLowerCase()}`) return 'profile';
+        if (path === '/notifications') return 'notifications';
+        if (path === '/i/account_analytics') return 'analytics';
+        return null;
+    }
+
+    function getRedirectPath() {
+        // When escaping, return user to a DIFFERENT root tab path
+        // Priority: last root tab > profile > notifications
+        // Must skip current path to avoid redirect loops (e.g., modal on analytics)
+        const currentPath = location.pathname.toLowerCase();
+
+        if (lastRootTabPath && lastRootTabPath.toLowerCase() !== currentPath) {
+            return lastRootTabPath;
+        }
+        if (username) {
+            const profilePath = `/${username}`;
+            if (profilePath.toLowerCase() !== currentPath) {
+                return profilePath;
+            }
+        }
+        if ('/notifications' !== currentPath) {
+            return '/notifications';
+        }
+        // Edge case: on notifications with no profile
+        return '/i/account_analytics';
     }
 
     // ========================================
@@ -117,28 +172,37 @@
                 --x41-bg: ${dark ? '0,0,0' : '255,255,255'};
                 --x41-border: ${dark ? '56,56,58' : '209,209,214'};
             }
+            /* Hide native bottom bar */
             [data-testid="BottomBar"] {
                 visibility: hidden !important;
                 pointer-events: none !important;
                 position: fixed !important;
                 bottom: -100px !important;
             }
-            body:not(.x41-compose) [data-testid="TopNavBar"],
-            body:not(.x41-compose) header[role="banner"] {
+            /* Hide header on content pages (not modal pages) */
+            body:not(.x41-show-header) [data-testid="TopNavBar"],
+            body:not(.x41-show-header) header[role="banner"] {
                 visibility: hidden !important;
                 height: 0 !important;
                 min-height: 0 !important;
                 overflow: hidden !important;
             }
+            /* Add padding for tab bar - always applied to avoid layout shifts */
             [data-testid="primaryColumn"] {
                 padding-bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA} + 20px) !important;
             }
+            /* Adjust FAB position */
             [data-testid="FloatingActionButtons_Tweet_Button"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
             }
-            /* Toast notifications - flush with tab bar */
+            /* Adjust toast position */
             #layers [data-testid="toast"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
+            }
+            /* Hide tab bar on modal pages (compose, intent, messages) */
+            body.x41-show-header #x41-tab-bar {
+                opacity: 0 !important;
+                pointer-events: none !important;
             }
             /* Hide tab bar when sheets/menus/dropdowns are open */
             body:has(#layers [data-testid="sheetDialog"]) #x41-tab-bar,
@@ -173,9 +237,13 @@
                 color: rgb(var(--x41-inactive));
                 text-decoration: none;
                 -webkit-tap-highlight-color: transparent;
+                transition: color 0.15s ease-out, transform 0.1s ease-out, opacity 0.1s ease-out;
             }
             .x41-tab.active { color: rgb(var(--x41-active)); }
-            .x41-tab:active { opacity: 0.6; }
+            .x41-tab:active {
+                opacity: 0.6;
+                transform: scale(0.92);
+            }
             .x41-tab svg {
                 width: 24px;
                 height: 24px;
@@ -197,6 +265,13 @@
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                padding: 0 4px;
+            }
+            .x41-badge.x41-badge-dot {
+                width: 8px;
+                height: 8px;
+                min-width: 8px;
+                padding: 0;
             }
         `;
         (document.head || document.documentElement).appendChild(style);
@@ -217,11 +292,13 @@
     function createTabBar() {
         if ($tabBar) return;
 
-        const tabs = [
-            { id: 'profile', href: `/${username}`, icon: 'profile' },
-            { id: 'notifications', href: '/notifications', icon: 'notifications' },
-            { id: 'analytics', href: '/i/account_analytics', icon: 'analytics' }
-        ];
+        // Build tabs - profile only if username detected
+        const tabs = [];
+        if (username) {
+            tabs.push({ id: 'profile', href: `/${username}`, icon: 'profile' });
+        }
+        tabs.push({ id: 'notifications', href: '/notifications', icon: 'notifications' });
+        tabs.push({ id: 'analytics', href: '/i/account_analytics', icon: 'analytics' });
 
         $tabBar = document.createElement('nav');
         $tabBar.id = 'x41-tab-bar';
@@ -241,7 +318,8 @@
             $tabBar.appendChild(a);
         });
 
-        // SPA navigation - use touchend for faster mobile response
+        // touchend for immediate touch response + double-tap detection
+        // click for VoiceOver accessibility (blocked if touch just handled it)
         $tabBar.addEventListener('touchend', handleTabTap, { passive: false });
         $tabBar.addEventListener('click', handleTabTap);
 
@@ -249,21 +327,42 @@
         updateTabs();
     }
 
-    let lastTapTime = 0;
-
     function handleTabTap(e) {
         const tab = e.target.closest('.x41-tab');
         if (!tab) return;
 
         e.preventDefault();
 
-        // Prevent double-firing (touchend + click within 300ms)
         const now = Date.now();
-        if (now - lastTapTime < 300) return;
-        lastTapTime = now;
+        const tabId = tab.dataset.tab;
+        const rootPath = getRootPath(tabId);
 
-        const href = tab.getAttribute('href');
-        navigateSPA(href);
+        // Block click if touch just handled it (within 500ms)
+        if (e.type === 'click' && now - lastTapTime < 500) {
+            return;
+        }
+
+        const isActiveTab = activeTab === tabId;
+        const currentTabAtPath = getTabForPath(location.pathname);
+        const atRoot = currentTabAtPath === tabId;
+        const isDoubleTap = lastTappedTab === tabId && (now - lastTapTime) < 500;
+
+        lastTapTime = now;
+        lastTappedTab = tabId;
+
+        if (isActiveTab && atRoot) {
+            // At root of active tab - only scroll on double tap
+            if (isDoubleTap) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+            return;
+        }
+
+        // Navigate to root (either switching tabs or going from deep to root)
+        activeTab = tabId;
+        lastRootTabPath = rootPath;  // Track for /home redirect fallback
+        updateTabs();  // Update icon immediately for instant feedback
+        navigateSPA(rootPath);
     }
 
     function navigateSPA(path) {
@@ -282,28 +381,24 @@
     function updateTabs() {
         if (!$tabBar) return;
 
-        const path = location.pathname;
         $tabBar.querySelectorAll('.x41-tab').forEach(tab => {
             const id = tab.dataset.tab;
-            let active = false;
+            const isActive = activeTab === id;
 
-            if (id === 'profile' && username) {
-                const lowerPath = path.toLowerCase();
-                const lowerUser = username.toLowerCase();
-                active = lowerPath === `/${lowerUser}` || lowerPath.startsWith(`/${lowerUser}/`);
-            } else if (id === 'notifications') {
-                active = path.startsWith('/notifications');
-            } else if (id === 'analytics') {
-                active = path.startsWith('/i/account_analytics');
+            tab.classList.toggle('active', isActive);
+
+            // Accessibility: mark current page
+            if (isActive) {
+                tab.setAttribute('aria-current', 'page');
+            } else {
+                tab.removeAttribute('aria-current');
             }
 
-            tab.classList.toggle('active', active);
-
-            // Update icon
+            // Update icon (filled when active, outline when not)
             const icon = ICONS[id];
             const pathEl = tab.querySelector('path');
             if (pathEl && icon) {
-                pathEl.setAttribute('d', active ? (icon.filled || icon.default) : (icon.outline || icon.default));
+                pathEl.setAttribute('d', isActive ? (icon.filled || icon.default) : (icon.outline || icon.default));
             }
         });
 
@@ -318,62 +413,110 @@
         if (!tab) return;
 
         let badge = tab.querySelector('.x41-badge');
-        const count = getNotificationCount();
         const onNotifications = location.pathname.startsWith('/notifications');
+        const { hasNotifications, count } = getNotificationBadgeInfo();
 
-        if (count > 0 && !onNotifications) {
+        if (hasNotifications && !onNotifications) {
             if (!badge) {
                 badge = document.createElement('span');
                 badge.className = 'x41-badge';
                 badge.setAttribute('aria-live', 'polite');
                 tab.appendChild(badge);
             }
-            const label = count === 1 ? '1 unread item' : `${count > 99 ? '99+' : count} unread items`;
-            badge.setAttribute('aria-label', label);
-            badge.textContent = count > 99 ? '99+' : count;
+
+            if (count !== null && count > 0) {
+                // Show count
+                const label = count === 1 ? '1 unread item' : `${count > 99 ? '99+' : count} unread items`;
+                badge.setAttribute('aria-label', label);
+                badge.textContent = count > 99 ? '99+' : count;
+                badge.classList.remove('x41-badge-dot');
+            } else {
+                // Show dot fallback (can't parse count but has notifications)
+                badge.setAttribute('aria-label', 'Unread notifications');
+                badge.textContent = '';
+                badge.classList.add('x41-badge-dot');
+            }
         } else if (badge) {
             badge.remove();
         }
     }
 
     // ========================================
+    // PREMIUM UPSELL MODAL HANDLER
+    // ========================================
+
+    function setupPremiumModalHandler() {
+        // Intercept X Premium upsell modal dismiss buttons on analytics page
+        // Without this, clicking Close/Maybe later reloads the page and shows the modal again
+        document.addEventListener('click', (e) => {
+            if (location.pathname !== '/i/account_analytics') return;
+
+            const modal = document.querySelector('[data-testid="sheetDialog"]');
+            if (!modal) return;
+
+            // Check if click is on Close button or Maybe later button inside the modal
+            const closeBtn = e.target.closest('[data-testid="app-bar-close"]');
+            const maybeLaterBtn = e.target.closest('button');
+            const isMaybeLater = maybeLaterBtn?.textContent?.includes('Maybe later');
+
+            if ((closeBtn || isMaybeLater) && modal.contains(e.target)) {
+                e.preventDefault();
+                e.stopPropagation();
+                // Navigate away using same fallback as /home redirect
+                navigateSPA(getRedirectPath());
+            }
+        }, true); // Capture phase to intercept before X.com's handlers
+    }
+
+    // ========================================
     // NAVIGATION
     // ========================================
 
-    let lastPath = location.pathname;
+    let lastPath = null;
 
     function onNavigate() {
         const path = location.pathname;
 
-        // Intercept /home navigation - redirect to previous page (not current, to avoid loops)
+        // Intercept home/feed - redirect to previous content page (avoid feed)
         if (path === '/' || path === '/home') {
-            const destination = previousActivePath || (username ? `/${username}` : '/notifications');
-            navigateSPA(destination);
-            return; // Don't update lastPath - let next cycle detect the change
+            navigateSPA(getRedirectPath());
+            return;
         }
 
         if (path === lastPath) return;
         lastPath = path;
 
-        // Track previous/current for future redirects (exclude compose/intent)
-        if (!path.includes('/compose/') && !path.includes('/intent/')) {
-            previousActivePath = currentActivePath;
-            currentActivePath = path;
+        // Determine if this is a modal page (header shown, tab bar hidden)
+        const isModalPage = path.includes('/compose/') ||
+                            path.includes('/intent/') ||
+                            path.includes('/messages/');
+
+        // Auto-switch active tab ONLY on exact root path match
+        // This preserves the "origin tab" during deep navigation
+        if (!isModalPage) {
+            const tabAtPath = getTabForPath(path);
+            if (tabAtPath) {
+                activeTab = tabAtPath;
+                lastRootTabPath = path;  // Only track ROOT paths for redirect
+            }
         }
 
-        // Show header on compose pages
-        document.body.classList.toggle('x41-compose',
-            path.includes('/compose/') || path.includes('/intent/'));
+        // Toggle header visibility
+        const hasHeaderClass = document.body.classList.contains('x41-show-header');
+        if (isModalPage !== hasHeaderClass) {
+            document.body.classList.toggle('x41-show-header', isModalPage);
+        }
 
         updateTabs();
     }
 
     function watchNavigation() {
-        // Content scripts run in isolated world - can't intercept X.com's pushState
-        // Poll for URL changes from SPA navigation
-        setInterval(() => {
-            if (location.pathname !== lastPath) onNavigate();
-        }, 100);
+        // Listen for navigation events from injected.js (intercepts pushState/replaceState)
+        window.addEventListener('message', (event) => {
+            if (event.source !== window) return;
+            if (event.data?.type !== 'X41_NAVIGATED') return;
+            onNavigate();
+        });
 
         // Also catch back/forward
         window.addEventListener('popstate', onNavigate);
@@ -384,7 +527,29 @@
     // ========================================
 
     function startBadgePolling() {
-        setInterval(updateBadge, 2000);
+        // Prevent multiple intervals
+        if (badgeIntervalId) return;
+        badgeIntervalId = setInterval(updateBadge, 5000);
+    }
+
+    // ========================================
+    // CLEANUP & VISIBILITY
+    // ========================================
+
+    function stopBadgePolling() {
+        if (badgeIntervalId) {
+            clearInterval(badgeIntervalId);
+            badgeIntervalId = null;
+        }
+    }
+
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            stopBadgePolling();
+        } else {
+            startBadgePolling();
+            updateBadge();
+        }
     }
 
     // ========================================
@@ -392,33 +557,72 @@
     // ========================================
 
     async function main() {
-        // Wait for app to load
-        await getElement('#layers');
-
-        // Get username (retry up to 5 seconds)
-        for (let i = 0; i < 10; i++) {
-            username = getUserScreenName();
-            if (username) break;
-            await new Promise(r => setTimeout(r, 500));
+        // Wait for app to load (with timeout)
+        const layers = await getElement('#layers');
+        if (!layers) {
+            console.warn('[X41] Timeout waiting for X.com to load');
+            return;
         }
 
-        if (!username) return;
+        // Get username (retry up to 5 seconds)
+        for (let i = 0; i < USERNAME_RETRY_ATTEMPTS; i++) {
+            username = getUserScreenName();
+            if (username) break;
+            await new Promise(r => setTimeout(r, USERNAME_RETRY_DELAY));
+        }
 
-        // Create UI
+        if (!username) {
+            console.warn('[X41] Username detection failed, using 2-tab fallback');
+        }
+
+        // Set initial active tab based on current URL
+        const path = location.pathname;
+        const initialTab = getTabForPath(path);
+        if (initialTab) {
+            // Starting on a root tab path
+            activeTab = initialTab;
+            lastRootTabPath = path;
+        } else {
+            // Check if we're in a tab's "deep" area (preserve origin context)
+            const lowerPath = path.toLowerCase();
+            if (username && lowerPath.startsWith(`/${username.toLowerCase()}/`)) {
+                activeTab = 'profile';
+                lastRootTabPath = `/${username}`;  // Set to root, not deep path
+            } else if (lowerPath.startsWith('/notifications/')) {
+                activeTab = 'notifications';
+                lastRootTabPath = '/notifications';
+            } else if (lowerPath.startsWith('/i/account_analytics/')) {
+                activeTab = 'analytics';
+                lastRootTabPath = '/i/account_analytics';
+            }
+            // If none match (e.g., on /compose), activeTab stays null
+        }
+
+        // Create UI (works with or without username - graceful degradation)
         createTabBar();
         startBadgePolling();
+        setupPremiumModalHandler();
 
         // Watch for theme changes
         matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColors);
+
+        // Pause polling when tab is hidden (saves memory/CPU)
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', stopBadgePolling);
+
+        // Set initial navigation state (handles first page load)
+        onNavigate();
     }
 
     // ========================================
     // ENTRY POINT
     // ========================================
 
-    // Redirect home to notifications
+    // Redirect home to compose
     if (location.pathname === '/' || location.pathname === '/home') {
-        location.replace('/notifications');
+        location.replace('/compose/post');
         return;
     }
 
