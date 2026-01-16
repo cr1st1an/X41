@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-X41 is a Safari Web Extension for iOS that provides a focused X.com experience. It replaces the native navigation with a custom tab bar (Profile, Notifications, Analytics) and redirects `/` and `/home` to the user's previous page or notifications.
+X41 is a Safari Web Extension for iOS that provides a focused X.com experience. It replaces the native navigation with a custom tab bar (Profile, Notifications, Analytics) and redirects `/` and `/home` to `/compose/post` on initial load, or to the last visited root tab during SPA navigation.
 
 ## Build Commands
 
@@ -29,9 +29,9 @@ xcodebuild -scheme X41 -destination 'generic/platform=iOS Simulator' build
 
 ```
 X41 Extension/Resources/
-├── content.js       # Main extension logic (~510 lines), runs in isolated world
-├── injected.js      # SPA navigation helper (~25 lines), runs in main world
-├── manifest.json    # Manifest V3 configuration
+├── content.js       # Main extension logic (~560 lines), runs in isolated world
+├── injected.js      # SPA navigation helper (~50 lines), runs in main world
+├── manifest.json    # Manifest V3 configuration (targets x.com only, no subdomains)
 └── _locales/        # i18n strings
 ```
 
@@ -53,17 +53,30 @@ content.js (isolated) → postMessage → injected.js (main) → history.pushSta
 
 ```
 Entry Point (runs at document_start)
-├── Redirect / and /home → /notifications
+├── Redirect / and /home → /compose/post
 ├── injectStyles() - hide native bars immediately
 ├── injectMainWorldScript() - load injected.js
 ├── watchNavigation() - listen for X41_NAVIGATED messages from injected.js
 └── main() (on DOMContentLoaded)
     ├── Wait for #layers element (30s timeout)
     ├── getUserScreenName() - parse from script tags (5s retry)
+    ├── Set initial activeTab based on URL
     ├── createTabBar() - 2 or 3 tabs depending on username detection
     ├── startBadgePolling() - 5s interval badge updates
     └── cleanup() - clear intervals on page unload
 ```
+
+### State Model
+
+```javascript
+activeTab: 'profile' | 'notifications' | 'analytics' | null  // Currently highlighted tab
+lastRootTabPath: string | null  // Last visited root path (for fallback navigation)
+```
+
+**Root paths** (exact match triggers auto-switch):
+- Profile: `/${username}`
+- Notifications: `/notifications`
+- Analytics: `/i/account_analytics`
 
 ### Key Patterns
 
@@ -76,16 +89,25 @@ Entry Point (runs at document_start)
 2. For tab clicks, content.js posts message to `injected.js` which runs in main world
 3. `injected.js` validates path and calls `history.pushState` + dispatches `popstate` event
 
-**Double-tap scroll**: Tapping an already-active tab within 500ms scrolls to top (iOS convention).
+**Active tab persistence**: The highlighted tab (`activeTab`) persists during deep navigation. If user is on `/notifications` and clicks a tweet, notifications stays highlighted. Tapping the highlighted tab navigates back to root.
 
-**Tab bar hiding**: Uses CSS `:has()` selector to hide tab bar when sheets/menus are open:
+**Tab navigation behavior**:
+- Tap inactive tab → navigate to root, make active
+- Tap active tab when deep → navigate to root
+- Tap active tab when at root (single) → nothing
+- Tap active tab when at root (double within 500ms) → scroll to top
+
+**Tab bar visibility**: Tab bar is hidden on modal pages (compose, intent, messages) where the header is shown. Uses CSS `:has()` selector to also hide when sheets/menus are open:
 ```css
+body.x41-show-header #x41-tab-bar { display: none; }
 body:has(#layers [data-testid="sheetDialog"]) #x41-tab-bar { opacity: 0; }
 ```
 
-**Header visibility**: Header is shown on `/compose/`, `/intent/`, and `/messages/` routes.
+**Header visibility**: Header is shown on `/compose/`, `/intent/`, and `/messages/` routes. Tab bar is hidden on these routes.
 
-**Home redirect**: Intercepts `/` and `/home` navigation, redirects to `previousActivePath` (not current, to avoid loops with upsell screens).
+**Home redirect**:
+- Initial page load to `/` or `/home` → redirects to `/compose/post`
+- SPA navigation to `/` or `/home` → redirects to `lastRootTabPath`, or profile (if username), or `/notifications`
 
 **Badge fallback**: If notification count can't be parsed, shows blue dot indicator instead of number.
 
