@@ -38,8 +38,8 @@
 
     let $tabBar = null;
     let username = null;
-    let activeTab = null;        // Currently highlighted tab: 'profile' | 'notifications' | 'analytics' | null
-    let lastRootTabPath = null;  // Last visited root path (for fallback navigation)
+    let activeTab = null;           // Currently highlighted tab: 'profile' | 'notifications' | 'analytics' | null
+    let lastRootTabPath = null;     // Last visited ROOT path (for /home redirect fallback)
     let lastTapTime = 0;
     let lastTappedTab = null;
     let badgeIntervalId = null;
@@ -134,23 +134,25 @@
     }
 
     function getRedirectPath() {
-        // When escaping from / or /home, find a different page to go to
-        // Priority: last root tab > profile > notifications > analytics
-        const candidates = [
-            lastRootTabPath,
-            username ? `/${username}` : null,
-            '/notifications',
-            '/i/account_analytics'
-        ].filter(Boolean);
+        // When escaping, return user to a DIFFERENT root tab path
+        // Priority: last root tab > profile > notifications
+        // Must skip current path to avoid redirect loops (e.g., modal on analytics)
+        const currentPath = location.pathname.toLowerCase();
 
-        // Return first candidate that's different from current page
-        for (const path of candidates) {
-            if (path !== lastPath) {
-                return path;
+        if (lastRootTabPath && lastRootTabPath.toLowerCase() !== currentPath) {
+            return lastRootTabPath;
+        }
+        if (username) {
+            const profilePath = `/${username}`;
+            if (profilePath.toLowerCase() !== currentPath) {
+                return profilePath;
             }
         }
-        // All candidates match current page (shouldn't happen with 3+ tabs)
-        return '/notifications';
+        if ('/notifications' !== currentPath) {
+            return '/notifications';
+        }
+        // Edge case: on notifications with no profile
+        return '/i/account_analytics';
     }
 
     // ========================================
@@ -185,16 +187,16 @@
                 min-height: 0 !important;
                 overflow: hidden !important;
             }
-            /* Only add extra padding when tab bar is visible (header hidden) */
-            body:not(.x41-show-header) [data-testid="primaryColumn"] {
+            /* Add padding for tab bar - always applied to avoid layout shifts */
+            [data-testid="primaryColumn"] {
                 padding-bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA} + 20px) !important;
             }
-            /* Only adjust FAB when tab bar is visible */
-            body:not(.x41-show-header) [data-testid="FloatingActionButtons_Tweet_Button"] {
+            /* Adjust FAB position */
+            [data-testid="FloatingActionButtons_Tweet_Button"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
             }
-            /* Only adjust toasts when tab bar is visible */
-            body:not(.x41-show-header) #layers [data-testid="toast"] {
+            /* Adjust toast position */
+            #layers [data-testid="toast"] {
                 bottom: calc(${TAB_BAR_HEIGHT}px + ${SAFE_AREA}) !important;
             }
             /* Hide tab bar on modal pages (compose, intent, messages) */
@@ -358,6 +360,7 @@
 
         // Navigate to root (either switching tabs or going from deep to root)
         activeTab = tabId;
+        lastRootTabPath = rootPath;  // Track for /home redirect fallback
         updateTabs();  // Update icon immediately for instant feedback
         navigateSPA(rootPath);
     }
@@ -439,6 +442,33 @@
     }
 
     // ========================================
+    // PREMIUM UPSELL MODAL HANDLER
+    // ========================================
+
+    function setupPremiumModalHandler() {
+        // Intercept X Premium upsell modal dismiss buttons on analytics page
+        // Without this, clicking Close/Maybe later reloads the page and shows the modal again
+        document.addEventListener('click', (e) => {
+            if (location.pathname !== '/i/account_analytics') return;
+
+            const modal = document.querySelector('[data-testid="sheetDialog"]');
+            if (!modal) return;
+
+            // Check if click is on Close button or Maybe later button inside the modal
+            const closeBtn = e.target.closest('[data-testid="app-bar-close"]');
+            const maybeLaterBtn = e.target.closest('button');
+            const isMaybeLater = maybeLaterBtn?.textContent?.includes('Maybe later');
+
+            if ((closeBtn || isMaybeLater) && modal.contains(e.target)) {
+                e.preventDefault();
+                e.stopPropagation();
+                // Navigate away using same fallback as /home redirect
+                navigateSPA(getRedirectPath());
+            }
+        }, true); // Capture phase to intercept before X.com's handlers
+    }
+
+    // ========================================
     // NAVIGATION
     // ========================================
 
@@ -447,9 +477,7 @@
     function onNavigate() {
         const path = location.pathname;
 
-        // Intercept home/feed - redirect to a content tab (avoid feed)
-        // Note: We return early WITHOUT updating lastPath, so lastPath still
-        // holds the previous page, which getRedirectPath() uses to avoid loops
+        // Intercept home/feed - redirect to previous content page (avoid feed)
         if (path === '/' || path === '/home') {
             navigateSPA(getRedirectPath());
             return;
@@ -458,17 +486,22 @@
         if (path === lastPath) return;
         lastPath = path;
 
-        // Check if we arrived at a root tab path - auto-switch active tab
-        const tabAtPath = getTabForPath(path);
-        if (tabAtPath) {
-            activeTab = tabAtPath;
-            lastRootTabPath = path;
-        }
-
-        // Determine if this is a "modal" page (header shown, tab bar hidden)
+        // Determine if this is a modal page (header shown, tab bar hidden)
         const isModalPage = path.includes('/compose/') ||
                             path.includes('/intent/') ||
                             path.includes('/messages/');
+
+        // Auto-switch active tab ONLY on exact root path match
+        // This preserves the "origin tab" during deep navigation
+        if (!isModalPage) {
+            const tabAtPath = getTabForPath(path);
+            if (tabAtPath) {
+                activeTab = tabAtPath;
+                lastRootTabPath = path;  // Only track ROOT paths for redirect
+            }
+        }
+
+        // Toggle header visibility
         const hasHeaderClass = document.body.classList.contains('x41-show-header');
         if (isModalPage !== hasHeaderClass) {
             document.body.classList.toggle('x41-show-header', isModalPage);
@@ -543,19 +576,24 @@
         }
 
         // Set initial active tab based on current URL
-        const initialTab = getTabForPath(location.pathname);
+        const path = location.pathname;
+        const initialTab = getTabForPath(path);
         if (initialTab) {
+            // Starting on a root tab path
             activeTab = initialTab;
-            lastRootTabPath = location.pathname;
+            lastRootTabPath = path;
         } else {
-            // Check if we're in a tab's "deep" area
-            const path = location.pathname.toLowerCase();
-            if (username && path.startsWith(`/${username.toLowerCase()}/`)) {
+            // Check if we're in a tab's "deep" area (preserve origin context)
+            const lowerPath = path.toLowerCase();
+            if (username && lowerPath.startsWith(`/${username.toLowerCase()}/`)) {
                 activeTab = 'profile';
-            } else if (path.startsWith('/notifications/')) {
+                lastRootTabPath = `/${username}`;  // Set to root, not deep path
+            } else if (lowerPath.startsWith('/notifications/')) {
                 activeTab = 'notifications';
-            } else if (path.startsWith('/i/account_analytics/')) {
+                lastRootTabPath = '/notifications';
+            } else if (lowerPath.startsWith('/i/account_analytics/')) {
                 activeTab = 'analytics';
+                lastRootTabPath = '/i/account_analytics';
             }
             // If none match (e.g., on /compose), activeTab stays null
         }
@@ -563,6 +601,7 @@
         // Create UI (works with or without username - graceful degradation)
         createTabBar();
         startBadgePolling();
+        setupPremiumModalHandler();
 
         // Watch for theme changes
         matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeColors);

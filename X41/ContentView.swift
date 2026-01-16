@@ -67,7 +67,7 @@ struct ContentView: View {
                     Button {
                         showingSetup = true
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 12) {
                             Text("Enable Safari Extension")
                             Image(systemName: "chevron.right")
                                 .font(.headline.weight(.semibold))
