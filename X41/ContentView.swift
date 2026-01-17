@@ -50,8 +50,8 @@ struct ContentView: View {
                         .padding(.horizontal, 32)
                         .padding(.bottom, 32)
 
-                    // Visual preview
-                    FeaturePreview()
+                    // Tab bar preview (tappable - opens X.com)
+                    TabBarPreview()
                         .padding(.horizontal, 32)
                         .padding(.bottom, 24)
 
@@ -252,14 +252,25 @@ private struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Feature Preview
+// MARK: - Tab Bar Preview (Functional)
 
-private struct FeaturePreview: View {
+private struct TabBarPreview: View {
+    private let tabs: [(icon: String, label: String, url: String, isActive: Bool)] = [
+        ("person.fill", "Profile", "https://x.com/i/profile", false),
+        ("bell.fill", "Notifications", "https://x.com/notifications", true),
+        ("chart.bar.fill", "Analytics", "https://x.com/i/account_analytics", false)
+    ]
+
     var body: some View {
         HStack(spacing: 0) {
-            PreviewTab(icon: "person.fill", label: "Profile", isActive: false)
-            PreviewTab(icon: "bell.fill", label: "Notifications", isActive: true)
-            PreviewTab(icon: "chart.bar.fill", label: "Analytics", isActive: false)
+            ForEach(tabs, id: \.label) { tab in
+                TabButton(
+                    icon: tab.icon,
+                    label: tab.label,
+                    url: tab.url,
+                    isHighlighted: tab.isActive
+                )
+            }
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 6)
@@ -274,31 +285,40 @@ private struct FeaturePreview: View {
     }
 }
 
-private struct PreviewTab: View {
+private struct TabButton: View {
     let icon: String
     let label: String
-    let isActive: Bool
+    let url: String
+    let isHighlighted: Bool
 
     var body: some View {
-        VStack(spacing: 4) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: isActive ? .semibold : .regular))
-                .foregroundStyle(isActive ? Color.primary : Color.secondary)
-                .frame(height: 24)
+        Button {
+            if let url = URL(string: url) {
+                UIApplication.shared.open(url)
+            }
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: isHighlighted ? .semibold : .regular))
+                    .foregroundStyle(isHighlighted ? Color.primary : Color.secondary)
+                    .frame(height: 24)
 
-            Text(label)
-                .font(.caption2)
-                .fontWeight(isActive ? .medium : .regular)
-                .foregroundStyle(isActive ? Color.primary : Color.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .background {
-            if isActive {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color(uiColor: .tertiarySystemBackground))
+                Text(label)
+                    .font(.caption2)
+                    .fontWeight(isHighlighted ? .medium : .regular)
+                    .foregroundStyle(isHighlighted ? Color.primary : Color.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .background {
+                if isHighlighted {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Color(uiColor: .tertiarySystemBackground))
+                }
             }
         }
+        .buttonStyle(ScaleButtonStyle())
+        .accessibilityLabel("Open \(label) on X")
     }
 }
 

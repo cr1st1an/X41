@@ -25,6 +25,19 @@ xcodebuild -scheme X41 -destination 'generic/platform=iOS Simulator' build
 1. **X41** (Container App) - SwiftUI onboarding that guides users to enable the extension
 2. **X41 Extension** (Safari Web Extension) - The actual extension with Manifest V3
 
+### Home Screen Quick Actions
+
+Long-press the app icon to access shortcuts:
+
+| Action | URL |
+|--------|-----|
+| Post | `x.com/compose/post` |
+| Profile | `x.com/i/profile` |
+| Notifications | `x.com/notifications` |
+| Analytics | `x.com/i/account_analytics` |
+
+Defined in `Info.plist` (`UIApplicationShortcutItems`), handled by `AppDelegate` in `X41App.swift`.
+
 ### Extension Files
 
 ```

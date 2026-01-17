@@ -663,13 +663,8 @@
     // ENTRY POINT
     // ========================================
 
-    // Redirect home to compose
-    if (location.pathname === '/' || location.pathname === '/home') {
-        location.replace('/compose/post');
-        return;
-    }
-
     // Inject styles early to hide bottom bar immediately
+    // (Home redirect is handled via SPA navigation in onNavigate to avoid hard refresh)
     injectStyles();
 
     // Inject main world script for SPA navigation
