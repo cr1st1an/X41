@@ -66,6 +66,7 @@ content.js (isolated) → postMessage → injected.js (main) → history.pushSta
 
 ```
 Entry Point (runs at document_start)
+├── Redirect / and /home → /compose/post (immediate, exits early)
 ├── injectStyles() - hide native bars immediately
 ├── injectMainWorldScript() - load injected.js
 ├── watchNavigation() - listen for X41_NAVIGATED messages from injected.js
@@ -75,7 +76,7 @@ Entry Point (runs at document_start)
     ├── Set initial activeTab based on URL
     ├── createTabBar() - always 3 tabs (profile uses /i/profile if username unknown)
     ├── startBadgePolling() - 5s interval badge updates
-    ├── onNavigate() - handles home redirect (initial → /compose/post)
+    ├── onNavigate() - handles SPA navigation, home→lastRootTab fallback
     └── cleanup() - clear intervals on page unload
 ```
 

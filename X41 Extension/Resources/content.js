@@ -676,8 +676,14 @@
     // ENTRY POINT
     // ========================================
 
+    // Redirect home/feed immediately (before any content renders)
+    // This is the primary "Skip the Feed" mechanism for initial page loads
+    if (location.pathname === '/' || location.pathname === '/home') {
+        location.replace('/compose/post');
+        return;  // Exit early - page will reload at /compose/post
+    }
+
     // Inject styles early to hide bottom bar immediately
-    // (Home redirect is handled via SPA navigation in onNavigate to avoid hard refresh)
     injectStyles();
 
     // Inject main world script for SPA navigation
