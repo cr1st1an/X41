@@ -678,9 +678,27 @@
 
     // Redirect home/feed immediately (before any content renders)
     // This is the primary "Skip the Feed" mechanism for initial page loads
+    //
+    // IMPORTANT: Safari reuses tabs when opening URLs from external apps.
+    // If we redirect during a tab reuse transition, both navigations can fail,
+    // resulting in a blank screen. We use sessionStorage to prevent this:
+    // - Track when we redirect
+    // - Skip redirect if we just redirected (within 2 seconds)
+    // - This allows Safari's external navigation to complete cleanly
     if (location.pathname === '/' || location.pathname === '/home') {
-        location.replace('/compose/post');
-        return;  // Exit early - page will reload at /compose/post
+        const redirectKey = 'x41_redirect_time';
+        const lastRedirect = parseInt(sessionStorage.getItem(redirectKey) || '0', 10);
+        const now = Date.now();
+
+        // Only redirect if we haven't redirected in the last 2 seconds
+        // This prevents conflicts with Safari's tab reuse navigation
+        if (now - lastRedirect > 2000) {
+            sessionStorage.setItem(redirectKey, now.toString());
+            location.replace('/compose/post');
+            return;  // Exit early - page will reload at /compose/post
+        }
+        // If we recently redirected, let Safari's navigation complete
+        // The SPA redirect in onNavigate() will handle it later if needed
     }
 
     // Inject styles early to hide bottom bar immediately

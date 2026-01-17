@@ -28,21 +28,23 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         if let item = connectionOptions.shortcutItem {
-            openURL(for: item)
+            _ = openURL(for: item)
         }
     }
 
     func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
-        openURL(for: shortcutItem)
-        completionHandler(true)
+        let handled = openURL(for: shortcutItem)
+        completionHandler(handled)
     }
 
-    private func openURL(for item: UIApplicationShortcutItem) {
-        guard let action = QuickAction(rawValue: item.type) else { return }
+    @discardableResult
+    private func openURL(for item: UIApplicationShortcutItem) -> Bool {
+        guard let action = QuickAction(rawValue: item.type) else { return false }
         // Brief delay ensures app is ready (especially for cold launch)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             UIApplication.shared.open(action.url)
         }
+        return true
     }
 }
 
