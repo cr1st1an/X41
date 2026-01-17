@@ -42,8 +42,8 @@ struct ContentView: View {
                         .padding(.bottom, 8)
 
                     // Subheadline
-                    Text("A calm way to post on X.com")
-                        .font(.body)
+                    Text("Skip the Feed on X.com")
+                        .font(.system(size: 22))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(2)
@@ -56,7 +56,7 @@ struct ContentView: View {
                         .padding(.bottom, 24)
 
                     // Trust signal
-                    Text("Everything you need. Nothing you don’t.")
+                    Text("No more doomscrolling. Take back your time.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -67,7 +67,7 @@ struct ContentView: View {
                     Button {
                         showingSetup = true
                     } label: {
-                        HStack(spacing: 12) {
+                        HStack(spacing: 20) {
                             Text("Enable Safari Extension")
                             Image(systemName: "chevron.right")
                                 .font(.headline.weight(.semibold))
