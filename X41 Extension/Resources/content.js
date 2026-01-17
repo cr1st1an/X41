@@ -57,7 +57,9 @@
     let lastTapTime = 0;
     let lastTappedTab = null;
     let badgeIntervalId = null;
-    let pendingUsernameCapture = false; // Flag for lazy username detection via /i/profile redirect
+    let usernameCapturePath = null;     // Path that triggered capture (e.g., '/i/profile'), null if not pending
+    let usernameCaptureTime = 0;        // Timestamp when capture was initiated
+    let isInitialNavigation = true;     // True until first navigation completes
 
     // ========================================
     // HELPERS
@@ -387,7 +389,8 @@
 
         // Enable lazy username capture if navigating to profile without known username
         if (tabId === 'profile' && !username) {
-            pendingUsernameCapture = true;
+            usernameCapturePath = rootPath;  // '/i/profile'
+            usernameCaptureTime = Date.now();
         }
 
         updateTabs();  // Update icon immediately for instant feedback
@@ -503,27 +506,37 @@
 
     function onNavigate() {
         const path = location.pathname;
+        const wasInitialNavigation = isInitialNavigation;
+        isInitialNavigation = false;  // Always clear after first call
 
-        // Intercept home/feed - redirect to previous content page (avoid feed)
+        // ── Home/Feed Redirect ──────────────────────────────────────────
         if (path === '/' || path === '/home') {
-            navigateSPA(getRedirectPath());
+            // Initial page load → compose (documented behavior)
+            // SPA navigation → last root tab or fallback
+            const target = wasInitialNavigation ? '/compose/post' : getRedirectPath();
+            navigateSPA(target);
             return;
         }
 
-        // Lazy username capture: when /i/profile redirects to /${username}
-        if (pendingUsernameCapture) {
-            pendingUsernameCapture = false;
+        // ── Lazy Username Capture ───────────────────────────────────────
+        // When /i/profile redirects to /${username}, capture the username.
+        // Only valid within 2 seconds of initiating navigation to /i/profile.
+        if (usernameCapturePath && (Date.now() - usernameCaptureTime < 2000)) {
             const match = path.match(/^\/([a-zA-Z0-9_]+)$/);
             if (match) {
                 const captured = match[1];
-                // Validate it's not a reserved path
                 if (!RESERVED_PATHS.includes(captured.toLowerCase())) {
                     username = captured;
-                    // Update lastRootTabPath to actual profile path
                     lastRootTabPath = `/${username}`;
-                    console.log(`[X41] Detected username: ${username}`);
+                    console.log(`[X41] Captured username: ${username}`);
                 }
+                // Clear capture state (success or reserved path)
+                usernameCapturePath = null;
             }
+            // Nested paths (like /i/profile itself) keep capture active
+        } else if (usernameCapturePath) {
+            // Timeout expired, clear capture state
+            usernameCapturePath = null;
         }
 
         if (path === lastPath) return;

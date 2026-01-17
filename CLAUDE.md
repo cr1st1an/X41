@@ -66,7 +66,6 @@ content.js (isolated) → postMessage → injected.js (main) → history.pushSta
 
 ```
 Entry Point (runs at document_start)
-├── Redirect / and /home → /compose/post
 ├── injectStyles() - hide native bars immediately
 ├── injectMainWorldScript() - load injected.js
 ├── watchNavigation() - listen for X41_NAVIGATED messages from injected.js
@@ -76,6 +75,7 @@ Entry Point (runs at document_start)
     ├── Set initial activeTab based on URL
     ├── createTabBar() - always 3 tabs (profile uses /i/profile if username unknown)
     ├── startBadgePolling() - 5s interval badge updates
+    ├── onNavigate() - handles home redirect (initial → /compose/post)
     └── cleanup() - clear intervals on page unload
 ```
 
@@ -85,7 +85,9 @@ Entry Point (runs at document_start)
 activeTab: 'profile' | 'notifications' | 'analytics' | null  // Currently highlighted tab
 lastRootTabPath: string | null  // Last visited root path (for fallback navigation)
 lastPath: string | null  // Last processed path (dedup)
-pendingUsernameCapture: boolean  // Flag for lazy username detection via /i/profile
+usernameCapturePath: string | null  // Path that triggered capture (e.g., '/i/profile')
+usernameCaptureTime: number  // Timestamp when capture was initiated (2s timeout)
+isInitialNavigation: boolean  // True until first navigation (for home→/compose/post redirect)
 ```
 
 **Path constants** (defined in `PATHS` object):
