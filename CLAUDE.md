@@ -29,7 +29,7 @@ xcodebuild -scheme X41 -destination 'generic/platform=iOS Simulator' build
 
 ```
 X41 Extension/Resources/
-├── content.js       # Main extension logic (~560 lines), runs in isolated world
+├── content.js       # Main extension logic (~670 lines), runs in isolated world
 ├── injected.js      # SPA navigation helper (~50 lines), runs in main world
 ├── manifest.json    # Manifest V3 configuration (targets x.com only, no subdomains)
 └── _locales/        # i18n strings
@@ -61,7 +61,7 @@ Entry Point (runs at document_start)
     ├── Wait for #layers element (30s timeout)
     ├── getUserScreenName() - parse from script tags (5s retry)
     ├── Set initial activeTab based on URL
-    ├── createTabBar() - 2 or 3 tabs depending on username detection
+    ├── createTabBar() - always 3 tabs (profile uses /i/profile if username unknown)
     ├── startBadgePolling() - 5s interval badge updates
     └── cleanup() - clear intervals on page unload
 ```
@@ -71,18 +71,24 @@ Entry Point (runs at document_start)
 ```javascript
 activeTab: 'profile' | 'notifications' | 'analytics' | null  // Currently highlighted tab
 lastRootTabPath: string | null  // Last visited root path (for fallback navigation)
+lastPath: string | null  // Last processed path (dedup)
+pendingUsernameCapture: boolean  // Flag for lazy username detection via /i/profile
 ```
 
-**Root paths** (exact match triggers auto-switch):
-- Profile: `/${username}`
-- Notifications: `/notifications`
-- Analytics: `/i/account_analytics`
+**Path constants** (defined in `PATHS` object):
+```javascript
+PATHS.profile: '/i/profile'       // X.com redirect to logged-in user
+PATHS.notifications: '/notifications'
+PATHS.analytics: '/i/account_analytics'
+```
+
+**Helper**: `getProfilePath()` returns `/${username}` if known, otherwise `PATHS.profile`
 
 ### Key Patterns
 
 **Username detection**: React props (`__reactProps$`) are inaccessible in Safari's isolated world. Instead, parse inline `<script>` tags for `"screen_name":"username"`. Falls back to profile link in DOM.
 
-**Graceful degradation**: If username detection fails, shows 2-tab bar (Notifications + Analytics only). Profile tab requires username.
+**Profile tab resilience**: Profile tab always shows. If username detection fails on load, the tab navigates to `/i/profile` (X.com's internal redirect to the logged-in user's profile). When `/i/profile` redirects to `/${username}`, the extension captures the username lazily for future use.
 
 **SPA navigation**: Content scripts can't intercept X.com's `history.pushState`. Solution:
 1. `injected.js` patches `history.pushState`/`replaceState` and notifies content.js via postMessage
@@ -107,7 +113,7 @@ body:has(#layers [data-testid="sheetDialog"]) #x41-tab-bar { opacity: 0; }
 
 **Home redirect**:
 - Initial page load to `/` or `/home` → redirects to `/compose/post`
-- SPA navigation to `/` or `/home` → redirects to `lastRootTabPath`, or profile (if username), or `/notifications`
+- SPA navigation to `/` or `/home` → redirects to `lastRootTabPath`, or `/i/profile`, or `/notifications`
 
 **Badge fallback**: If notification count can't be parsed, shows blue dot indicator instead of number.
 

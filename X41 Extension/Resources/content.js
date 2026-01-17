@@ -18,6 +18,19 @@
     const USERNAME_RETRY_ATTEMPTS = 10;
     const USERNAME_RETRY_DELAY = 500;
 
+    // Tab root paths
+    const PATHS = {
+        profile: '/i/profile',      // X.com internal redirect to logged-in user's profile
+        notifications: '/notifications',
+        analytics: '/i/account_analytics'
+    };
+
+    // Reserved paths that should not be captured as usernames
+    const RESERVED_PATHS = [
+        'home', 'explore', 'search', 'notifications', 'messages', 'compose',
+        'i', 'settings', 'login', 'logout', 'signup', 'tos', 'privacy'
+    ];
+
     const ICONS = {
         profile: {
             outline: 'M5.651 19h12.698c-.337-1.8-1.023-3.21-1.945-4.19C15.318 13.65 13.838 13 12 13s-3.317.65-4.404 1.81c-.922.98-1.608 2.39-1.945 4.19zm.486-5.56C7.627 11.85 9.648 11 12 11s4.373.85 5.863 2.44c1.477 1.58 2.366 3.8 2.632 6.46l.11 1.1H3.395l.11-1.1c.266-2.66 1.155-4.88 2.632-6.46zM12 4c-1.105 0-2 .9-2 2s.895 2 2 2 2-.9 2-2-.895-2-2-2zM8 6c0-2.21 1.791-4 4-4s4 1.79 4 4-1.791 4-4 4-4-1.79-4-4z',
@@ -38,11 +51,24 @@
 
     let $tabBar = null;
     let username = null;
-    let activeTab = null;           // Currently highlighted tab: 'profile' | 'notifications' | 'analytics' | null
-    let lastRootTabPath = null;     // Last visited ROOT path (for /home redirect fallback)
+    let activeTab = null;               // Currently highlighted tab: 'profile' | 'notifications' | 'analytics' | null
+    let lastRootTabPath = null;         // Last visited ROOT path (for /home redirect fallback)
+    let lastPath = null;                // Last processed path (to avoid duplicate processing)
     let lastTapTime = 0;
     let lastTappedTab = null;
     let badgeIntervalId = null;
+    let pendingUsernameCapture = false; // Flag for lazy username detection via /i/profile redirect
+
+    // ========================================
+    // HELPERS
+    // ========================================
+
+    /**
+     * Returns the profile path - direct username path if known, otherwise /i/profile fallback
+     */
+    function getProfilePath() {
+        return username ? `/${username}` : PATHS.profile;
+    }
 
     // ========================================
     // USERNAME DETECTION
@@ -118,9 +144,9 @@
     // ========================================
 
     function getRootPath(tabId) {
-        if (tabId === 'profile' && username) return `/${username}`;
-        if (tabId === 'notifications') return '/notifications';
-        if (tabId === 'analytics') return '/i/account_analytics';
+        if (tabId === 'profile') return getProfilePath();
+        if (tabId === 'notifications') return PATHS.notifications;
+        if (tabId === 'analytics') return PATHS.analytics;
         return null;
     }
 
@@ -128,8 +154,8 @@
         // Returns tab ID if path exactly matches a root path
         const lowerPath = path.toLowerCase();
         if (username && lowerPath === `/${username.toLowerCase()}`) return 'profile';
-        if (path === '/notifications') return 'notifications';
-        if (path === '/i/account_analytics') return 'analytics';
+        if (path === PATHS.notifications) return 'notifications';
+        if (path === PATHS.analytics) return 'analytics';
         return null;
     }
 
@@ -142,17 +168,15 @@
         if (lastRootTabPath && lastRootTabPath.toLowerCase() !== currentPath) {
             return lastRootTabPath;
         }
-        if (username) {
-            const profilePath = `/${username}`;
-            if (profilePath.toLowerCase() !== currentPath) {
-                return profilePath;
-            }
+        const profilePath = getProfilePath();
+        if (profilePath.toLowerCase() !== currentPath) {
+            return profilePath;
         }
-        if ('/notifications' !== currentPath) {
-            return '/notifications';
+        if (PATHS.notifications !== currentPath) {
+            return PATHS.notifications;
         }
-        // Edge case: on notifications with no profile
-        return '/i/account_analytics';
+        // Edge case: on notifications
+        return PATHS.analytics;
     }
 
     // ========================================
@@ -292,13 +316,12 @@
     function createTabBar() {
         if ($tabBar) return;
 
-        // Build tabs - profile only if username detected
-        const tabs = [];
-        if (username) {
-            tabs.push({ id: 'profile', href: `/${username}`, icon: 'profile' });
-        }
-        tabs.push({ id: 'notifications', href: '/notifications', icon: 'notifications' });
-        tabs.push({ id: 'analytics', href: '/i/account_analytics', icon: 'analytics' });
+        // Build tabs - profile uses /i/profile if username unknown (X.com will redirect)
+        const tabs = [
+            { id: 'profile', href: getProfilePath(), icon: 'profile' },
+            { id: 'notifications', href: PATHS.notifications, icon: 'notifications' },
+            { id: 'analytics', href: PATHS.analytics, icon: 'analytics' }
+        ];
 
         $tabBar = document.createElement('nav');
         $tabBar.id = 'x41-tab-bar';
@@ -361,6 +384,12 @@
         // Navigate to root (either switching tabs or going from deep to root)
         activeTab = tabId;
         lastRootTabPath = rootPath;  // Track for /home redirect fallback
+
+        // Enable lazy username capture if navigating to profile without known username
+        if (tabId === 'profile' && !username) {
+            pendingUsernameCapture = true;
+        }
+
         updateTabs();  // Update icon immediately for instant feedback
         navigateSPA(rootPath);
     }
@@ -413,7 +442,7 @@
         if (!tab) return;
 
         let badge = tab.querySelector('.x41-badge');
-        const onNotifications = location.pathname.startsWith('/notifications');
+        const onNotifications = location.pathname.startsWith(PATHS.notifications);
         const { hasNotifications, count } = getNotificationBadgeInfo();
 
         if (hasNotifications && !onNotifications) {
@@ -449,7 +478,7 @@
         // Intercept X Premium upsell modal dismiss buttons on analytics page
         // Without this, clicking Close/Maybe later reloads the page and shows the modal again
         document.addEventListener('click', (e) => {
-            if (location.pathname !== '/i/account_analytics') return;
+            if (location.pathname !== PATHS.analytics) return;
 
             const modal = document.querySelector('[data-testid="sheetDialog"]');
             if (!modal) return;
@@ -472,8 +501,6 @@
     // NAVIGATION
     // ========================================
 
-    let lastPath = null;
-
     function onNavigate() {
         const path = location.pathname;
 
@@ -481,6 +508,22 @@
         if (path === '/' || path === '/home') {
             navigateSPA(getRedirectPath());
             return;
+        }
+
+        // Lazy username capture: when /i/profile redirects to /${username}
+        if (pendingUsernameCapture) {
+            pendingUsernameCapture = false;
+            const match = path.match(/^\/([a-zA-Z0-9_]+)$/);
+            if (match) {
+                const captured = match[1];
+                // Validate it's not a reserved path
+                if (!RESERVED_PATHS.includes(captured.toLowerCase())) {
+                    username = captured;
+                    // Update lastRootTabPath to actual profile path
+                    lastRootTabPath = `/${username}`;
+                    console.log(`[X41] Detected username: ${username}`);
+                }
+            }
         }
 
         if (path === lastPath) return;
@@ -572,7 +615,7 @@
         }
 
         if (!username) {
-            console.warn('[X41] Username detection failed, using 2-tab fallback');
+            console.log('[X41] Username not detected on load, will capture on first profile visit');
         }
 
         // Set initial active tab based on current URL
@@ -588,17 +631,17 @@
             if (username && lowerPath.startsWith(`/${username.toLowerCase()}/`)) {
                 activeTab = 'profile';
                 lastRootTabPath = `/${username}`;  // Set to root, not deep path
-            } else if (lowerPath.startsWith('/notifications/')) {
+            } else if (lowerPath.startsWith(PATHS.notifications + '/')) {
                 activeTab = 'notifications';
-                lastRootTabPath = '/notifications';
-            } else if (lowerPath.startsWith('/i/account_analytics/')) {
+                lastRootTabPath = PATHS.notifications;
+            } else if (lowerPath.startsWith(PATHS.analytics + '/')) {
                 activeTab = 'analytics';
-                lastRootTabPath = '/i/account_analytics';
+                lastRootTabPath = PATHS.analytics;
             }
             // If none match (e.g., on /compose), activeTab stays null
         }
 
-        // Create UI (works with or without username - graceful degradation)
+        // Create UI (profile tab uses /i/profile fallback if username unknown)
         createTabBar();
         startBadgePolling();
         setupPremiumModalHandler();
